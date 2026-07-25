@@ -26,23 +26,29 @@ local persistentState = {
     itemDistance = 150,
     itemToggles = {},
     categoryToggles = {},
+    corpseEspEnabled = false,
+    corpseDistance = 1000,
+    equipmentEspEnabled = false,
+    equipmentDistance = 150,
+    equipmentToggles = {},
+    equipmentCategoryToggles = {},
 }
 
 local ITEM_TYPES = {
     ["Weapons"] = {
         "AR15", "AK47", "M4A1", "MP5", "Remington 870", "SKS", "VSS", "AS VAL",
         "SR-25", "M110", "MK14", "M14", "M9", "UMP", "UMP45", "MP5K", "Glock17",
-        "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1",
+        "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal",
         "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E",
         "Battle Hammer", "M40", "VSS Vintorez", "Mace", "Shiv", "Spiked Bat", 
         "Wooden Bat", "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
-        "KA-BAR", "Cleaver", "Pipe Wrench", "Claw Hammer", "Pickaxe", "Nightstick",
-        "Hammer",
+        "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver", "Combat Knife",
+        "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
         "5.45x39mm", "5.56x45mm", "5.7x28mm", "7.62x39mm", "7.62x51mm",
-        "7.92x57mm", "9x19mm", "9x39mm",
+        "7.62x54mmR", "7.92x57mm", "9x19mm", "9x39mm",
     },
     ["Food"] = {
         "Apple Juice", "Biscuits", "Bottled Water", "Carbonated Water",
@@ -55,20 +61,29 @@ local ITEM_TYPES = {
         "Pork & Beans", "Salty Crackers", "Tomato Soup", "Chicken Soup",
         "Ham Spread",
     },
-    ["Medical"] = {
-        "Bandage", "Improvised Bandage", "Morphine",
+    ["Misc"] = {
+        "Bandage", "Improvised Bandage", "Bunker Access Keycard", "Prison Armory Access Keycard",
+        "Satellite outpost Access Keycard", "Police Armory Access Keycard", "FlashLight", "Metal Parts",
+        "Weapon Cleaning Kit", "Cloth"
     },
-    ["Other"] = {
-        "FlashLight", "Metal Parts",
-        "Weapon Cleaning Kit",
+    ["Equipment"] = {
+            "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
+            "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
+            "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
+            "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
+            "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
+            "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
+            "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier",
     },
 }
 
 local CATEGORY_NAMES = {}
-for category, _ in pairs(ITEM_TYPES) do
-    table.insert(CATEGORY_NAMES, category)
+local categoryOrder = {"Equipment", "Weapons", "Ammo", "Food", "Misc"}
+for _, category in ipairs(categoryOrder) do
+    if ITEM_TYPES[category] then
+        table.insert(CATEGORY_NAMES, category)
+    end
 end
-table.sort(CATEGORY_NAMES)
 
 local function GetModelPosition(model)
     if not model then return nil end
@@ -158,8 +173,10 @@ local function GetItemColor(name)
         return Color3.fromRGB(255, 255, 100)
     elseif category == "Food" then
         return Color3.fromRGB(100, 255, 100)
-    elseif category == "Medical" then
-        return Color3.fromRGB(255, 100, 100)
+    elseif category == "Misc" then
+        return Color3.fromRGB(200, 200, 255)
+    elseif category == "Equipment" then
+        return Color3.fromRGB(0, 255, 200)
     else
         return Color3.fromRGB(200, 200, 255)
     end
@@ -420,6 +437,162 @@ local function RenderItemESP()
     end
 end
 
+local corpseDrawings = {}
+local corpseCache = {}
+local corpseFrameCounter = 0
+local CORPSE_UPDATE_EVERY_N_FRAMES = 3
+local corpseScanned = false
+
+local function ClearCorpseDrawings()
+    for _, drawing in ipairs(corpseDrawings) do
+        pcall(drawing.Remove, drawing)
+    end
+    corpseDrawings = {}
+end
+
+local function ScanCorpses()
+    local corpses = {}
+    local corpseFolder = Workspace:FindFirstChild("Corpses")
+    if not corpseFolder then
+        corpseScanned = true
+        return corpses
+    end
+
+    for _, child in ipairs(corpseFolder:GetChildren()) do
+        if child:IsA("Model") then
+            local position = nil
+            
+            local rootPart = child:FindFirstChild("HumanoidRootPart")
+            if rootPart and rootPart:IsA("BasePart") then
+                position = rootPart.Position
+            end
+            
+            if not position then
+                for _, part in ipairs(child:GetChildren()) do
+                    if part:IsA("MeshPart") or part:IsA("Part") or part:IsA("BasePart") then
+                        position = part.Position
+                        break
+                    end
+                end
+            end
+            
+            if not position then
+                local success, result = pcall(function()
+                    return child:GetPivot().Position
+                end)
+                if success and result and result.Magnitude > 0 then
+                    position = result
+                end
+            end
+            
+            if position then
+                table.insert(corpses, {
+                    Name = child.Name,
+                    Position = position,
+                })
+            end
+        end
+    end
+    
+    corpseScanned = true
+    return corpses
+end
+
+local function RenderCorpseESP()
+    persistentState.corpseEspEnabled = UI.GetValue("corpse_esp_toggle") or false
+
+    if not persistentState.corpseEspEnabled then
+        ClearCorpseDrawings()
+        corpseScanned = false
+        corpseCache = {}
+        return
+    end
+
+    if #corpseCache == 0 and not corpseScanned then
+        corpseCache = ScanCorpses()
+        if #corpseCache == 0 then
+            return
+        end
+        SafeNotify("Corpse ESP found " .. #corpseCache .. " corpses", "Corpse ESP", 2)
+    end
+    
+    if #corpseCache == 0 then
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    persistentState.corpseDistance = UI.GetValue("corpse_distance") or 1000
+    local cameraPos = camera.Position
+
+    corpseFrameCounter = corpseFrameCounter + 1
+    if corpseFrameCounter > CORPSE_UPDATE_EVERY_N_FRAMES then
+        corpseFrameCounter = 0
+    end
+
+    if corpseFrameCounter ~= 0 then
+        return
+    end
+
+    local visibleCorpses = {}
+    for _, corpse in ipairs(corpseCache) do
+        local distance = (corpse.Position - cameraPos).Magnitude
+        if distance <= persistentState.corpseDistance then
+            local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
+            if onScreen then
+                table.insert(visibleCorpses, {
+                    Text = corpse.Name .. " [" .. math.floor(distance) .. "m]",
+                    Position = screenPos,
+                })
+            end
+        end
+    end
+
+    local visibleCount = #visibleCorpses
+    local drawingCount = #corpseDrawings
+
+    if visibleCount ~= drawingCount then
+        if visibleCount < drawingCount then
+            for i = visibleCount + 1, drawingCount do
+                if corpseDrawings[i] then
+                    pcall(corpseDrawings[i].Remove, corpseDrawings[i])
+                end
+            end
+            for i = #corpseDrawings, visibleCount + 1, -1 do
+                table.remove(corpseDrawings, i)
+            end
+        end
+        
+        while #corpseDrawings < visibleCount do
+            local label = Drawing.new("Text")
+            label.Font = Drawing.Fonts.System
+            label.Size = 11
+            label.Color = Color3.fromRGB(255, 50, 50)
+            label.Outline = true
+            label.Center = true
+            label.ZIndex = 999
+            label.Visible = true
+            table.insert(corpseDrawings, label)
+        end
+    end
+
+    for i, corpse in ipairs(visibleCorpses) do
+        local drawing = corpseDrawings[i]
+        if drawing then
+            drawing.Position = corpse.Position
+            drawing.Text = corpse.Text
+            drawing.Visible = true
+        end
+    end
+
+    for i = visibleCount + 1, #corpseDrawings do
+        if corpseDrawings[i] then
+            corpseDrawings[i].Visible = false
+        end
+    end
+end
+
 local panelDrawings = {}
 local cachedPlayer = nil
 local cachedData = nil
@@ -610,7 +783,6 @@ local function GetContentLines(data)
         return lines
     end
 
-    table.insert(lines, {text = data.Name .. " [" .. data.Health .. " HP]", color = Color3.fromRGB(255, 255, 255)})
     table.insert(lines, {text = "Distance: " .. data.Distance .. "m", color = Color3.fromRGB(200, 200, 200)})
 
     table.insert(lines, {text = "backpack:", color = Color3.fromRGB(200, 200, 200)})
@@ -804,15 +976,20 @@ local function ResetAllToggles()
 
     persistentState.inspectorEnabled = false
     persistentState.itemEspEnabled = false
+    persistentState.corpseEspEnabled = false
 
     ClearItemDrawings()
     ClearPanel()
+    ClearCorpseDrawings()
     itemCache = {}
+    corpseCache = {}
 end
 
 local function SetAllUITogglesFalse()
     UI.SetValue("inspector_toggle", false)
     UI.SetValue("item_esp_toggle", false)
+    UI.SetValue("corpse_esp_toggle", false)
+    UI.SetValue("corpse_distance", 1000)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
         UI.SetValue("item_category_all_" .. categoryName, false)
@@ -829,6 +1006,8 @@ local function RestoreUIState()
     UI.SetValue("ui_scale", persistentState.uiScale or 1.0)
     UI.SetValue("item_esp_toggle", persistentState.itemEspEnabled or false)
     UI.SetValue("item_distance", persistentState.itemDistance or 150)
+    UI.SetValue("corpse_esp_toggle", persistentState.corpseEspEnabled or false)
+    UI.SetValue("corpse_distance", persistentState.corpseDistance or 1000)
 
     for name, enabled in pairs(persistentState.itemToggles) do
         if toggleRefs[name] then
@@ -846,41 +1025,37 @@ end
 
 UI.AddTab("Walking Dead", function(tab)
 
-    local mainSection = tab:Section("Backpack Inspector", "Left")
+    local itemTypesSection = tab:Section("Item Types", "Left", CATEGORY_NAMES, 500)
 
-    mainSection:Toggle("inspector_toggle", "Enable Backpack Inspector", function(state)
-        persistentState.inspectorEnabled = state
-        if state then
-            SafeNotify("Backpack Inspector enabled", nil, 2)
-        else
-            ClearPanel()
-            SafeNotify("Backpack Inspector disabled", nil, 2)
+    for pageIndex, categoryName in ipairs(CATEGORY_NAMES) do
+        if itemTypesSection.page == pageIndex - 1 then
+            local items = ITEM_TYPES[categoryName]
+
+            local categoryToggle = itemTypesSection:Toggle("item_category_all_" .. categoryName, "ALL " .. categoryName, function(state)
+                persistentState.categoryToggles[categoryName] = state
+                for _, itemName in ipairs(items) do
+                    persistentState.itemToggles[itemName] = state
+                    if toggleRefs[itemName] then
+                        toggleRefs[itemName].Value = state
+                    end
+                end
+                ClearItemDrawings()
+            end)
+            toggleRefs["item_category_all_" .. categoryName] = categoryToggle
+
+            for _, itemName in ipairs(items) do
+                local itemToggle = itemTypesSection:Toggle("item_" .. itemName, itemName, function(state)
+                    persistentState.itemToggles[itemName] = state
+                    ClearItemDrawings()
+                end)
+                toggleRefs[itemName] = itemToggle
+            end
         end
-    end)
+    end
 
-    mainSection:SliderFloat("ui_scale", "UI Scale", MIN_SCALE, MAX_SCALE, 1.0, "%.1f", function(value)
-        persistentState.uiScale = value
-        ClearPanel()
-    end)
+    local MainSection = tab:Section("Main", "Right")
 
-    local infoSection = tab:Section("Info", "Left")
-
-    infoSection:Text("Walking Dead [online]")
-    infoSection:Spacing()
-    infoSection:Text("Backpack Inspector:")
-    infoSection:Text("  Shows items in backpack")
-    infoSection:Spacing()
-    infoSection:Text("Item ESP:")
-    infoSection:Text("  Weapons / Ammo / Food / Medical / Other")
-    infoSection:Spacing()
-    infoSection:Text("Note:")
-    infoSection:Text(" As you move throughout the map rescan items")
-    infoSection:Text(" so the items get updated as the game has loot resets.")
-    infoSection:Tip("by og_ten")
-
-    local itemSection = tab:Section("Item ESP", "Right")
-
-    itemSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
+    MainSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
         persistentState.itemEspEnabled = state
         if state then
             if #itemCache == 0 then
@@ -903,11 +1078,11 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
 
-    itemSection:SliderInt("item_distance", "Distance", 10, 1000, 150, function(value)
+    MainSection:SliderInt("item_distance", "Item Distance", 10, 1000, 150, function(value)
         persistentState.itemDistance = value
     end)
 
-    itemSection:Button("Rescan Items", function()
+    MainSection:Button("Rescan Items", function()
         if not persistentState.itemEspEnabled then
             SafeNotify("Enable Item ESP first!", "Item ESP", 2)
             return
@@ -929,39 +1104,80 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
 
-    local itemCategoryPages = {}
-    for category, _ in pairs(ITEM_TYPES) do
-        table.insert(itemCategoryPages, category)
-    end
-    table.sort(itemCategoryPages)
+    MainSection:Spacing()
+    MainSection:Spacing()
 
-    local itemTypeSection = tab:Section("Item Types", "Right", itemCategoryPages, 500)
-
-    for pageIndex, categoryName in ipairs(itemCategoryPages) do
-        if itemTypeSection.page == pageIndex - 1 then
-            local items = ITEM_TYPES[categoryName]
-
-            local categoryToggle = itemTypeSection:Toggle("item_category_all_" .. categoryName, "ALL " .. categoryName, function(state)
-                persistentState.categoryToggles[categoryName] = state
-                for _, itemName in ipairs(items) do
-                    persistentState.itemToggles[itemName] = state
-                    if toggleRefs[itemName] then
-                        toggleRefs[itemName].Value = state
-                    end
-                end
-                ClearItemDrawings()
-            end)
-            toggleRefs["item_category_all_" .. categoryName] = categoryToggle
-
-            for _, itemName in ipairs(items) do
-                local itemToggle = itemTypeSection:Toggle("item_" .. itemName, itemName, function(state)
-                    persistentState.itemToggles[itemName] = state
-                    ClearItemDrawings()
-                end)
-                toggleRefs[itemName] = itemToggle
-            end
+    MainSection:Toggle("corpse_esp_toggle", "Enable Corpse ESP", function(state)
+        persistentState.corpseEspEnabled = state
+        if state then
+            corpseCache = {}
+            SafeNotify("Corpse ESP enabled", nil, 2)
+        else
+            ClearCorpseDrawings()
+            corpseCache = {}
+            SafeNotify("Corpse ESP disabled", nil, 2)
         end
-    end
+    end)
+
+    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 1000, 1000, function(value)
+        persistentState.corpseDistance = value
+    end)
+
+    MainSection:Button("Rescan Corpses", function()
+        if not persistentState.corpseEspEnabled then
+            SafeNotify("Enable Corpse ESP first!", "Corpse ESP", 2)
+            return
+        end
+
+        corpseCache = {}
+        corpseScanned = false
+        ClearCorpseDrawings()
+
+        corpseCache = ScanCorpses()
+        if #corpseCache > 0 then
+            SafeNotify("Rescanned - found " .. #corpseCache .. " corpses", "Corpse ESP", 2)
+        else
+            SafeNotify("No corpses found.", "Corpse ESP", 2)
+        end
+    end)
+
+    MainSection:Spacing()
+    MainSection:Spacing()
+
+    MainSection:Toggle("inspector_toggle", "Enable Backpack Inspector", function(state)
+        persistentState.inspectorEnabled = state
+        if state then
+            SafeNotify("Backpack Inspector enabled", nil, 2)
+        else
+            ClearPanel()
+            SafeNotify("Backpack Inspector disabled", nil, 2)
+        end
+    end)
+
+    MainSection:SliderFloat("ui_scale", "UI Scale", MIN_SCALE, MAX_SCALE, 1.0, "%.1f", function(value)
+        persistentState.uiScale = value
+        ClearPanel()
+    end)
+
+    local infoSection = tab:Section("Info", "Right")
+
+    infoSection:Text("We Can Olive Together - Rick")
+    infoSection:Spacing()
+    infoSection:Text("Backpack Inspector:")
+    infoSection:Text("  Shows items in backpack")
+    infoSection:Spacing()
+    infoSection:Text("Item ESP:")
+    infoSection:Text("  Equipment / Weapons / Ammo / Food / Misc")
+    infoSection:Spacing()
+    infoSection:Text("Corpse ESP:")
+    infoSection:Text("  Shows corpses of dead players")
+    infoSection:Spacing()
+    infoSection:Text("Note:")
+    infoSection:Text(" As you move throughout the map rescan items")
+    infoSection:Text(" so they get updated since the game uses")
+    infoSection:Text(" a dynamic loot system which means items") 
+    infoSection:Text(" spawn and despawn as you move around the map.")
+    infoSection:Tip("by og_ten")
 
     task.wait(0.1)
     RestoreUIState()
@@ -970,9 +1186,10 @@ end)
 RunService.RenderStepped:Connect(function()
     RenderPanel()
     RenderItemESP()
+    RenderCorpseESP()
 end)
 
 ResetAllToggles()
 SetAllUITogglesFalse()
 
-SafeNotify("Walking Dead v17.0 loaded", "Walking Dead", 3)
+SafeNotify("Rick Said The Walking Dead Was Loaded", "Walking Dead", 3)
