@@ -2,9 +2,10 @@ local player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local lastNotifyTime = 0
-local NOTIFY_COOLDOWN = 2.0
+local NOTIFY_COOLDOWN = 1.0
 local lastNotifiedSkin = nil
 
 local function SafeNotify(message, title, duration)
@@ -32,7 +33,81 @@ local persistentState = {
     equipmentDistance = 150,
     equipmentToggles = {},
     equipmentCategoryToggles = {},
+    teleportEnabled = false,
+    selectedPOI = 0,
 }
+
+local POI_LOCATIONS = {
+    ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
+    ["PD"] = Vector3.new(3814.08, 125.18, -686.19),
+    ["Prison"] = Vector3.new(5501.63, 117.13, -2493.90),
+    ["Bunker"] = Vector3.new(5539.28, 211.88, -6108.75),
+    ["Alexandria"] = Vector3.new(71.33, 118.16, -5417.76),
+    ["Port"] = Vector3.new(-4520.35, 62.46, -5795.67),
+    ["Sanctuary"] = Vector3.new(-4425.31, 104.66, -3455.77),
+    ["Hilltop"] = Vector3.new(-4786.34, 140.93, -927.64),
+    ["Satellite Outpost"] = Vector3.new(-2196.25, 292.82, 12.23),
+    ["King County"] = Vector3.new(-4121.66, 172.43, 3599.39),
+    ["Quarry"] = Vector3.new(-5750.19, 283.56, 6282.38),
+    ["Hospital"] = Vector3.new(-1805.95, 172.30, 5577.22),
+    ["WoodBury"] = Vector3.new(4502.21, 117.22, 1183.52),
+    ["Big Spot"] = Vector3.new(2243.32, 248.34, 2089.93),
+    ["Air Strip"] = Vector3.new(3626.93, 129.94, 3917.03),
+    ["FarmHouse"] = Vector3.new(3175.00, 130.13, 4920.74)
+}
+
+local POI_NAMES = {}
+for name, _ in pairs(POI_LOCATIONS) do
+    table.insert(POI_NAMES, name)
+end
+table.sort(POI_NAMES)
+
+local TeleportKeybind = nil
+local character = nil
+local hrp = nil
+
+local function EnsureCharacter()
+    if not character or not character.Parent then
+        character = player.Character or player.CharacterAdded:Wait()
+        if not character then return false end
+        hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+    end
+    
+    if not hrp or not hrp.Parent then
+        hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+    end
+    
+    return true
+end
+
+local function TeleportToPOI(index)
+    local name = POI_NAMES[index + 1]
+    if not name then
+        SafeNotify("Invalid POI selected!", "Teleport", 2)
+        return
+    end
+    
+    local pos = POI_LOCATIONS[name]
+    if not pos then
+        SafeNotify("Position not found for " .. name, "Teleport", 2)
+        return
+    end
+    
+    if not EnsureCharacter() then
+        SafeNotify("Character not found!", "Teleport", 2)
+        return
+    end
+    
+    if not hrp then
+        SafeNotify("Root part not found!", "Teleport", 2)
+        return
+    end
+    
+    hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
+    SafeNotify("Teleported to " .. name, "Teleport", 3)
+end
 
 local ITEM_TYPES = {
     ["Weapons"] = {
@@ -513,7 +588,7 @@ local function RenderCorpseESP()
         if #corpseCache == 0 then
             return
         end
-        SafeNotify("Corpse ESP found " .. #corpseCache .. " corpses", "Corpse ESP", 2)
+        SafeNotify("Corpse ESP Enabled", "Corpse ESP", 2)
     end
     
     if #corpseCache == 0 then
@@ -977,6 +1052,8 @@ local function ResetAllToggles()
     persistentState.inspectorEnabled = false
     persistentState.itemEspEnabled = false
     persistentState.corpseEspEnabled = false
+    persistentState.teleportEnabled = false
+    persistentState.selectedPOI = 0
 
     ClearItemDrawings()
     ClearPanel()
@@ -990,6 +1067,8 @@ local function SetAllUITogglesFalse()
     UI.SetValue("item_esp_toggle", false)
     UI.SetValue("corpse_esp_toggle", false)
     UI.SetValue("corpse_distance", 1000)
+    UI.SetValue("teleport_enabled", false)
+    UI.SetValue("teleport_poi", 0)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
         UI.SetValue("item_category_all_" .. categoryName, false)
@@ -1008,6 +1087,8 @@ local function RestoreUIState()
     UI.SetValue("item_distance", persistentState.itemDistance or 150)
     UI.SetValue("corpse_esp_toggle", persistentState.corpseEspEnabled or false)
     UI.SetValue("corpse_distance", persistentState.corpseDistance or 1000)
+    UI.SetValue("teleport_enabled", persistentState.teleportEnabled or false)
+    UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
 
     for name, enabled in pairs(persistentState.itemToggles) do
         if toggleRefs[name] then
@@ -1078,7 +1159,7 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
 
-    MainSection:SliderInt("item_distance", "Item Distance", 10, 1000, 150, function(value)
+    MainSection:SliderInt("item_distance", "Item Distance", 10, 2000, 150, function(value)
         persistentState.itemDistance = value
     end)
 
@@ -1119,7 +1200,7 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
 
-    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 1000, 1000, function(value)
+    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 2000, 1000, function(value)
         persistentState.corpseDistance = value
     end)
 
@@ -1159,20 +1240,22 @@ UI.AddTab("Walking Dead", function(tab)
         ClearPanel()
     end)
 
+    local teleportSection = tab:Section("Teleport", "Right")
+    
+    teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
+        persistentState.selectedPOI = index
+        SafeNotify("Selected: " .. text, "Teleport", 2)
+    end)
+    
+    teleportSection:Button("Teleport to Selected", function()
+        local selectedIndex = UI.GetValue("teleport_poi") or 0
+        TeleportToPOI(selectedIndex)
+    end)
+
     local infoSection = tab:Section("Info", "Right")
 
     infoSection:Text("We Can Olive Together - Rick")
     infoSection:Spacing()
-    infoSection:Text("Backpack Inspector:")
-    infoSection:Text("  Shows items in backpack")
-    infoSection:Spacing()
-    infoSection:Text("Item ESP:")
-    infoSection:Text("  Equipment / Weapons / Ammo / Food / Misc")
-    infoSection:Spacing()
-    infoSection:Text("Corpse ESP:")
-    infoSection:Text("  Shows corpses of dead players")
-    infoSection:Spacing()
-    infoSection:Text("Note:")
     infoSection:Text(" As you move throughout the map rescan items")
     infoSection:Text(" so they get updated since the game uses")
     infoSection:Text(" a dynamic loot system which means items") 
