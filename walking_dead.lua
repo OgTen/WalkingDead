@@ -136,19 +136,22 @@ local ITEM_TYPES = {
         "Pork & Beans", "Salty Crackers", "Tomato Soup", "Chicken Soup",
         "Ham Spread",
     },
+    ["Keycards"] = {
+        "Bunker Access Keycard", "Prison Armory Access Keycard",
+        "Satellite outpost Access Keycard", "Police Armory Access Keycard",
+    },
     ["Misc"] = {
-        "Bandage", "Improvised Bandage", "Bunker Access Keycard", "Prison Armory Access Keycard",
-        "Satellite outpost Access Keycard", "Police Armory Access Keycard", "FlashLight", "Metal Parts",
+        "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
         "Weapon Cleaning Kit", "Cloth"
     },
     ["Equipment"] = {
-            "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
-            "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
-            "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
-            "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
-            "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
-            "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
-            "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
+        "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
+        "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
+        "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
+        "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
+        "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
+        "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
+        "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
     },
 }
 
@@ -248,6 +251,8 @@ local function GetItemColor(name)
         return Color3.fromRGB(255, 255, 100)
     elseif category == "Food" then
         return Color3.fromRGB(100, 255, 100)
+    elseif category == "Keycards" then
+        return Color3.fromRGB(255, 215, 0)
     elseif category == "Misc" then
         return Color3.fromRGB(200, 200, 255)
     elseif category == "Equipment" then
@@ -1069,9 +1074,15 @@ local function SetAllUITogglesFalse()
     UI.SetValue("corpse_distance", 1000)
     UI.SetValue("teleport_enabled", false)
     UI.SetValue("teleport_poi", 0)
+    
+    UI.SetValue("item_category_Equipment", false)
+    UI.SetValue("item_category_Weapons", false)
+    UI.SetValue("item_category_Ammo", false)
+    UI.SetValue("item_category_Food", false)
+    UI.SetValue("item_category_Keycards", false)
+    UI.SetValue("item_category_Misc", false)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
-        UI.SetValue("item_category_all_" .. categoryName, false)
         for _, itemName in ipairs(categoryItems) do
             UI.SetValue("item_" .. itemName, false)
         end
@@ -1089,6 +1100,13 @@ local function RestoreUIState()
     UI.SetValue("corpse_distance", persistentState.corpseDistance or 1000)
     UI.SetValue("teleport_enabled", persistentState.teleportEnabled or false)
     UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
+    
+    UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
+    UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
+    UI.SetValue("item_category_Ammo", persistentState.categoryToggles["Ammo"] or false)
+    UI.SetValue("item_category_Food", persistentState.categoryToggles["Food"] or false)
+    UI.SetValue("item_category_Keycards", persistentState.categoryToggles["Keycards"] or false)
+    UI.SetValue("item_category_Misc", persistentState.categoryToggles["Misc"] or false)
 
     for name, enabled in pairs(persistentState.itemToggles) do
         if toggleRefs[name] then
@@ -1105,36 +1123,7 @@ local function RestoreUIState()
 end
 
 UI.AddTab("Walking Dead", function(tab)
-
-    local itemTypesSection = tab:Section("Item Types", "Left", CATEGORY_NAMES, 500)
-
-    for pageIndex, categoryName in ipairs(CATEGORY_NAMES) do
-        if itemTypesSection.page == pageIndex - 1 then
-            local items = ITEM_TYPES[categoryName]
-
-            local categoryToggle = itemTypesSection:Toggle("item_category_all_" .. categoryName, "ALL " .. categoryName, function(state)
-                persistentState.categoryToggles[categoryName] = state
-                for _, itemName in ipairs(items) do
-                    persistentState.itemToggles[itemName] = state
-                    if toggleRefs[itemName] then
-                        toggleRefs[itemName].Value = state
-                    end
-                end
-                ClearItemDrawings()
-            end)
-            toggleRefs["item_category_all_" .. categoryName] = categoryToggle
-
-            for _, itemName in ipairs(items) do
-                local itemToggle = itemTypesSection:Toggle("item_" .. itemName, itemName, function(state)
-                    persistentState.itemToggles[itemName] = state
-                    ClearItemDrawings()
-                end)
-                toggleRefs[itemName] = itemToggle
-            end
-        end
-    end
-
-    local MainSection = tab:Section("Main", "Right")
+    local MainSection = tab:Section("Main", "Left")
 
     MainSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
         persistentState.itemEspEnabled = state
@@ -1163,26 +1152,55 @@ UI.AddTab("Walking Dead", function(tab)
         persistentState.itemDistance = value
     end)
 
-    MainSection:Button("Rescan Items", function()
-        if not persistentState.itemEspEnabled then
-            SafeNotify("Enable Item ESP first!", "Item ESP", 2)
-            return
-        end
+    MainSection:Spacing()
+    MainSection:Text("Item Categories:")
 
-        itemCache = {}
+    MainSection:Toggle("item_category_Equipment", "Equipment", function(state)
+        persistentState.categoryToggles["Equipment"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Equipment"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
         ClearItemDrawings()
+    end)
 
-        local camera = workspace.CurrentCamera
-        if camera then
-            itemCache = ScanAllItems()
-            if #itemCache > 0 then
-                SafeNotify("Rescanned - found " .. #itemCache .. " items", "Item ESP", 2)
-            else
-                SafeNotify("No items found. Check your toggles.", "Item ESP", 2)
-            end
-        else
-            SafeNotify("No camera found!", "Item ESP", 2)
+    MainSection:Toggle("item_category_Weapons", "Weapons", function(state)
+        persistentState.categoryToggles["Weapons"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Weapons"] or {}) do
+            persistentState.itemToggles[itemName] = state
         end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Ammo", "Ammo", function(state)
+        persistentState.categoryToggles["Ammo"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Food", "Food", function(state)
+        persistentState.categoryToggles["Food"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Food"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Keycards", "Keycards", function(state)
+        persistentState.categoryToggles["Keycards"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Keycards"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Misc", "Misc", function(state)
+        persistentState.categoryToggles["Misc"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Misc"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
     end)
 
     MainSection:Spacing()
@@ -1202,24 +1220,6 @@ UI.AddTab("Walking Dead", function(tab)
 
     MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 2000, 1000, function(value)
         persistentState.corpseDistance = value
-    end)
-
-    MainSection:Button("Rescan Corpses", function()
-        if not persistentState.corpseEspEnabled then
-            SafeNotify("Enable Corpse ESP first!", "Corpse ESP", 2)
-            return
-        end
-
-        corpseCache = {}
-        corpseScanned = false
-        ClearCorpseDrawings()
-
-        corpseCache = ScanCorpses()
-        if #corpseCache > 0 then
-            SafeNotify("Rescanned - found " .. #corpseCache .. " corpses", "Corpse ESP", 2)
-        else
-            SafeNotify("No corpses found.", "Corpse ESP", 2)
-        end
     end)
 
     MainSection:Spacing()
@@ -1244,7 +1244,7 @@ UI.AddTab("Walking Dead", function(tab)
     
     teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
         persistentState.selectedPOI = index
-        SafeNotify("Selected: " .. text, "Teleport", 2)
+        SafeNotify("Selected: " .. text, "Teleport", 1)
     end)
     
     teleportSection:Button("Teleport to Selected", function()
@@ -1256,10 +1256,11 @@ UI.AddTab("Walking Dead", function(tab)
 
     infoSection:Text("We Can Olive Together - Rick")
     infoSection:Spacing()
-    infoSection:Text(" As you move throughout the map rescan items")
-    infoSection:Text(" so they get updated since the game uses")
-    infoSection:Text(" a dynamic loot system which means items") 
-    infoSection:Text(" spawn and despawn as you move around the map.")
+    infoSection:Text("As you move throughout the map rescan items")
+    infoSection:Text("so they get updated since the game uses")
+    infoSection:Text("a dynamic loot system which means items")
+    infoSection:Text("spawn and despawn as you move around the map.")
+    infoSection:Spacing()
     infoSection:Tip("by og_ten")
 
     task.wait(0.1)
