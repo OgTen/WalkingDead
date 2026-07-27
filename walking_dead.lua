@@ -73,12 +73,12 @@ local function EnsureCharacter()
         hrp = character:FindFirstChild("HumanoidRootPart")
         if not hrp then return false end
     end
-
+    
     if not hrp or not hrp.Parent then
         hrp = character:FindFirstChild("HumanoidRootPart")
         if not hrp then return false end
     end
-
+    
     return true
 end
 
@@ -88,23 +88,23 @@ local function TeleportToPOI(index)
         SafeNotify("Invalid POI selected!", "Teleport", 2)
         return
     end
-
+    
     local pos = POI_LOCATIONS[name]
     if not pos then
         SafeNotify("Position not found for " .. name, "Teleport", 2)
         return
     end
-
+    
     if not EnsureCharacter() then
         SafeNotify("Character not found!", "Teleport", 2)
         return
     end
-
+    
     if not hrp then
         SafeNotify("Root part not found!", "Teleport", 2)
         return
     end
-
+    
     hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
     SafeNotify("Teleported to " .. name, "Teleport", 3)
 end
@@ -137,19 +137,18 @@ local ITEM_TYPES = {
         "Ham Spread",
     },
     ["Misc"] = {
-        "Bandage", "Improvised Bandage", "Bunker Access Keycard", "Prison Armory Access Keycard",
-        "Satellite outpost Access Keycard", "Police Armory Access Keycard", "FlashLight", "Metal Parts",
-        "Weapon Cleaning Kit", "Cloth"
+        "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
+        "Weapon Cleaning Kit", "Cloth", "Bunker Access Keycard", "Prison Armory Access Keycard",
+        "Satellite outpost Access Keycard", "Police Armory Access Keycard",
     },
     ["Equipment"] = {
-            "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
-            "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
-            "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
-            "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
-            "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
-            "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
-            "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier",
-            "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
+        "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
+        "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
+        "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
+        "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
+        "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
+        "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
+        "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
     },
 }
 
@@ -388,6 +387,7 @@ local function RenderItemESP()
 
     if not persistentState.itemEspEnabled then
         ClearItemDrawings()
+        itemCache = {}
         return
     end
 
@@ -401,6 +401,7 @@ local function RenderItemESP()
 
     if not hasEnabled then
         ClearItemDrawings()
+        itemCache = {}
         return
     end
 
@@ -413,6 +414,7 @@ local function RenderItemESP()
     if #itemCache == 0 then
         itemCache = ScanAllItems()
         if #itemCache == 0 then
+            ClearItemDrawings()
             return
         end
         SafeNotify("Item ESP cached " .. #itemCache .. " items", "Item ESP", 1)
@@ -470,6 +472,12 @@ local function RenderItemESP()
     end
 
     local visibleCount = #visibleItems
+
+    if visibleCount == 0 then
+        ClearItemDrawings()
+        return
+    end
+
     local drawingCount = #itemDrawings
 
     if visibleCount ~= drawingCount then
@@ -483,7 +491,7 @@ local function RenderItemESP()
                 table.remove(itemDrawings, i)
             end
         end
-
+        
         while #itemDrawings < visibleCount do
             local label = Drawing.new("Text")
             label.Font = Drawing.Fonts.System
@@ -537,12 +545,12 @@ local function ScanCorpses()
     for _, child in ipairs(corpseFolder:GetChildren()) do
         if child:IsA("Model") then
             local position = nil
-
+            
             local rootPart = child:FindFirstChild("HumanoidRootPart")
             if rootPart and rootPart:IsA("BasePart") then
                 position = rootPart.Position
             end
-
+            
             if not position then
                 for _, part in ipairs(child:GetChildren()) do
                     if part:IsA("MeshPart") or part:IsA("Part") or part:IsA("BasePart") then
@@ -551,7 +559,7 @@ local function ScanCorpses()
                     end
                 end
             end
-
+            
             if not position then
                 local success, result = pcall(function()
                     return child:GetPivot().Position
@@ -560,7 +568,7 @@ local function ScanCorpses()
                     position = result
                 end
             end
-
+            
             if position then
                 table.insert(corpses, {
                     Name = child.Name,
@@ -569,7 +577,7 @@ local function ScanCorpses()
             end
         end
     end
-
+    
     corpseScanned = true
     return corpses
 end
@@ -591,7 +599,7 @@ local function RenderCorpseESP()
         end
         SafeNotify("Corpse ESP Enabled", "Corpse ESP", 2)
     end
-
+    
     if #corpseCache == 0 then
         return
     end
@@ -639,7 +647,7 @@ local function RenderCorpseESP()
                 table.remove(corpseDrawings, i)
             end
         end
-
+        
         while #corpseDrawings < visibleCount do
             local label = Drawing.new("Text")
             label.Font = Drawing.Fonts.System
@@ -1070,9 +1078,14 @@ local function SetAllUITogglesFalse()
     UI.SetValue("corpse_distance", 1000)
     UI.SetValue("teleport_enabled", false)
     UI.SetValue("teleport_poi", 0)
+    
+    UI.SetValue("item_category_Equipment", false)
+    UI.SetValue("item_category_Weapons", false)
+    UI.SetValue("item_category_Ammo", false)
+    UI.SetValue("item_category_Food", false)
+    UI.SetValue("item_category_Misc", false)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
-        UI.SetValue("item_category_all_" .. categoryName, false)
         for _, itemName in ipairs(categoryItems) do
             UI.SetValue("item_" .. itemName, false)
         end
@@ -1090,6 +1103,12 @@ local function RestoreUIState()
     UI.SetValue("corpse_distance", persistentState.corpseDistance or 1000)
     UI.SetValue("teleport_enabled", persistentState.teleportEnabled or false)
     UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
+    
+    UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
+    UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
+    UI.SetValue("item_category_Ammo", persistentState.categoryToggles["Ammo"] or false)
+    UI.SetValue("item_category_Food", persistentState.categoryToggles["Food"] or false)
+    UI.SetValue("item_category_Misc", persistentState.categoryToggles["Misc"] or false)
 
     for name, enabled in pairs(persistentState.itemToggles) do
         if toggleRefs[name] then
@@ -1106,36 +1125,7 @@ local function RestoreUIState()
 end
 
 UI.AddTab("Walking Dead", function(tab)
-
-    local itemTypesSection = tab:Section("Item Types", "Left", CATEGORY_NAMES, 500)
-
-    for pageIndex, categoryName in ipairs(CATEGORY_NAMES) do
-        if itemTypesSection.page == pageIndex - 1 then
-            local items = ITEM_TYPES[categoryName]
-
-            local categoryToggle = itemTypesSection:Toggle("item_category_all_" .. categoryName, "ALL " .. categoryName, function(state)
-                persistentState.categoryToggles[categoryName] = state
-                for _, itemName in ipairs(items) do
-                    persistentState.itemToggles[itemName] = state
-                    if toggleRefs[itemName] then
-                        toggleRefs[itemName].Value = state
-                    end
-                end
-                ClearItemDrawings()
-            end)
-            toggleRefs["item_category_all_" .. categoryName] = categoryToggle
-
-            for _, itemName in ipairs(items) do
-                local itemToggle = itemTypesSection:Toggle("item_" .. itemName, itemName, function(state)
-                    persistentState.itemToggles[itemName] = state
-                    ClearItemDrawings()
-                end)
-                toggleRefs[itemName] = itemToggle
-            end
-        end
-    end
-
-    local MainSection = tab:Section("Main", "Right")
+    local MainSection = tab:Section("Main", "Left")
 
     MainSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
         persistentState.itemEspEnabled = state
@@ -1164,26 +1154,47 @@ UI.AddTab("Walking Dead", function(tab)
         persistentState.itemDistance = value
     end)
 
-    MainSection:Button("Rescan Items", function()
-        if not persistentState.itemEspEnabled then
-            SafeNotify("Enable Item ESP first!", "Item ESP", 2)
-            return
-        end
+    MainSection:Spacing()
+    MainSection:Text("Item Categories:")
 
-        itemCache = {}
+    MainSection:Toggle("item_category_Equipment", "Equipment", function(state)
+        persistentState.categoryToggles["Equipment"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Equipment"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
         ClearItemDrawings()
+    end)
 
-        local camera = workspace.CurrentCamera
-        if camera then
-            itemCache = ScanAllItems()
-            if #itemCache > 0 then
-                SafeNotify("Rescanned - found " .. #itemCache .. " items", "Item ESP", 2)
-            else
-                SafeNotify("No items found. Check your toggles.", "Item ESP", 2)
-            end
-        else
-            SafeNotify("No camera found!", "Item ESP", 2)
+    MainSection:Toggle("item_category_Weapons", "Weapons", function(state)
+        persistentState.categoryToggles["Weapons"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Weapons"] or {}) do
+            persistentState.itemToggles[itemName] = state
         end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Ammo", "Ammo", function(state)
+        persistentState.categoryToggles["Ammo"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Food", "Food", function(state)
+        persistentState.categoryToggles["Food"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Food"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
+    end)
+
+    MainSection:Toggle("item_category_Misc", "Misc", function(state)
+        persistentState.categoryToggles["Misc"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Misc"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        ClearItemDrawings()
     end)
 
     MainSection:Spacing()
@@ -1205,24 +1216,6 @@ UI.AddTab("Walking Dead", function(tab)
         persistentState.corpseDistance = value
     end)
 
-    MainSection:Button("Rescan Corpses", function()
-        if not persistentState.corpseEspEnabled then
-            SafeNotify("Enable Corpse ESP first!", "Corpse ESP", 2)
-            return
-        end
-
-        corpseCache = {}
-        corpseScanned = false
-        ClearCorpseDrawings()
-
-        corpseCache = ScanCorpses()
-        if #corpseCache > 0 then
-            SafeNotify("Rescanned - found " .. #corpseCache .. " corpses", "Corpse ESP", 2)
-        else
-            SafeNotify("No corpses found.", "Corpse ESP", 2)
-        end
-    end)
-
     MainSection:Spacing()
     MainSection:Spacing()
 
@@ -1242,12 +1235,12 @@ UI.AddTab("Walking Dead", function(tab)
     end)
 
     local teleportSection = tab:Section("Teleport", "Right")
-
+    
     teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
         persistentState.selectedPOI = index
-        SafeNotify("Selected: " .. text, "Teleport", 2)
+        SafeNotify("Selected: " .. text, "Teleport", 1)
     end)
-
+    
     teleportSection:Button("Teleport to Selected", function()
         local selectedIndex = UI.GetValue("teleport_poi") or 0
         TeleportToPOI(selectedIndex)
@@ -1257,10 +1250,11 @@ UI.AddTab("Walking Dead", function(tab)
 
     infoSection:Text("We Can Olive Together - Rick")
     infoSection:Spacing()
-    infoSection:Text(" As you move throughout the map rescan items")
-    infoSection:Text(" so they get updated since the game uses")
-    infoSection:Text(" a dynamic loot system which means items") 
-    infoSection:Text(" spawn and despawn as you move around the map.")
+    infoSection:Text("As you move throughout the map rescan items")
+    infoSection:Text("so they get updated since the game uses")
+    infoSection:Text("a dynamic loot system which means items")
+    infoSection:Text("spawn and despawn as you move around the map.")
+    infoSection:Spacing()
     infoSection:Tip("by og_ten")
 
     task.wait(0.1)
