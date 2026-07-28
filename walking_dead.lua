@@ -2,7 +2,6 @@ local player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local UserInputService = game:GetService("UserInputService")
 
 local lastNotifyTime = 0
 local NOTIFY_COOLDOWN = 1.0
@@ -62,7 +61,6 @@ for name, _ in pairs(POI_LOCATIONS) do
 end
 table.sort(POI_NAMES)
 
-local TeleportKeybind = nil
 local character = nil
 local hrp = nil
 
@@ -151,14 +149,6 @@ local ITEM_TYPES = {
         "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
     },
 }
-
-local CATEGORY_NAMES = {}
-local categoryOrder = {"Equipment", "Weapons", "Ammo", "Food", "Misc"}
-for _, category in ipairs(categoryOrder) do
-    if ITEM_TYPES[category] then
-        table.insert(CATEGORY_NAMES, category)
-    end
-end
 
 local function GetModelPosition(model)
     if not model then return nil end
@@ -285,31 +275,34 @@ local function ScanAllItems()
         return {}
     end
 
-    local physicalLoot = Workspace:FindFirstChild("PhysicalLoot")
-    if physicalLoot then
-        local hasFoodEnabled = false
-        for foodName, _ in pairs(ITEM_TYPES["Food"]) do
-            if enabledItems[foodName] then
-                hasFoodEnabled = true
+    local categoriesToScan = {}
+    for category, items in pairs(ITEM_TYPES) do
+        local hasAnyEnabled = false
+        for _, itemName in ipairs(items) do
+            if enabledItems[itemName] then
+                hasAnyEnabled = true
                 break
             end
         end
+        if hasAnyEnabled then
+            categoriesToScan[category] = true
+        end
+    end
 
-        if hasFoodEnabled then
-            for _, item in ipairs(physicalLoot:GetChildren()) do
-                local name = item.Name
-                local itemName = string.gsub(name, "^PhysicalLoot_", "")
-
-                if enabledItems[itemName] then
-                    local itemPos = GetModelPosition(item)
-                    if itemPos then
-                        table.insert(foundItems, {
-                            Name = itemName,
-                            Position = itemPos,
-                            Category = GetItemCategory(itemName),
-                            Color = GetItemColor(itemName),
-                        })
-                    end
+    local physicalLoot = Workspace:FindFirstChild("PhysicalLoot")
+    if physicalLoot and categoriesToScan["Food"] then
+        for _, item in ipairs(physicalLoot:GetChildren()) do
+            local name = item.Name
+            local itemName = string.gsub(name, "^PhysicalLoot_", "")
+            if enabledItems[itemName] then
+                local itemPos = GetModelPosition(item)
+                if itemPos then
+                    table.insert(foundItems, {
+                        Name = itemName,
+                        Position = itemPos,
+                        Category = GetItemCategory(itemName),
+                        Color = GetItemColor(itemName),
+                    })
                 end
             end
         end
@@ -328,8 +321,9 @@ local function ScanAllItems()
 
                 if child:IsA("Model") or child:IsA("Folder") then
                     local name = child.Name
+                    local category = GetItemCategory(name)
 
-                    if enabledItems[name] then
+                    if categoriesToScan[category] and enabledItems[name] then
                         processedCount = processedCount + 1
                         local itemPos = GetContainerPosition(child)
 
@@ -337,7 +331,7 @@ local function ScanAllItems()
                             table.insert(foundItems, {
                                 Name = name,
                                 Position = itemPos,
-                                Category = GetItemCategory(name),
+                                Category = category,
                                 Color = GetItemColor(name),
                             })
                         end
@@ -361,13 +355,15 @@ local function ScanAllItems()
             for _, child in ipairs(parent:GetChildren()) do
                 if child:IsA("Model") or child:IsA("Folder") then
                     local name = child.Name
-                    if enabledItems[name] then
+                    local category = GetItemCategory(name)
+
+                    if categoriesToScan[category] and enabledItems[name] then
                         local itemPos = GetContainerPosition(child)
                         if itemPos then
                             table.insert(foundItems, {
                                 Name = name,
                                 Position = itemPos,
-                                Category = GetItemCategory(name),
+                                Category = category,
                                 Color = GetItemColor(name),
                             })
                         end
@@ -1126,7 +1122,7 @@ end
 
 UI.AddTab("Walking Dead", function(tab)
     local MainSection = tab:Section("Main", "Left")
-
+    
     MainSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
         persistentState.itemEspEnabled = state
         if state then
@@ -1149,57 +1145,163 @@ UI.AddTab("Walking Dead", function(tab)
             SafeNotify("Item ESP disabled", "Item ESP", 2)
         end
     end)
-
+    
     MainSection:SliderInt("item_distance", "Item Distance", 10, 2000, 150, function(value)
         persistentState.itemDistance = value
     end)
-
+    
     MainSection:Spacing()
     MainSection:Text("Item Categories:")
-
+    
     MainSection:Toggle("item_category_Equipment", "Equipment", function(state)
         persistentState.categoryToggles["Equipment"] = state
         for _, itemName in ipairs(ITEM_TYPES["Equipment"] or {}) do
             persistentState.itemToggles[itemName] = state
         end
-        ClearItemDrawings()
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
     end)
-
+    
     MainSection:Toggle("item_category_Weapons", "Weapons", function(state)
         persistentState.categoryToggles["Weapons"] = state
         for _, itemName in ipairs(ITEM_TYPES["Weapons"] or {}) do
             persistentState.itemToggles[itemName] = state
         end
-        ClearItemDrawings()
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
     end)
-
+    
     MainSection:Toggle("item_category_Ammo", "Ammo", function(state)
         persistentState.categoryToggles["Ammo"] = state
-        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
-            persistentState.itemToggles[itemName] = state
+        
+        local filterText = UI.GetValue("ammo_filter") or ""
+        
+        if state then
+            if filterText == "" or filterText:lower() == "all" then
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = true
+                end
+            elseif filterText:lower() ~= "none" then
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = false
+                end
+                for word in string.gmatch(filterText, "[^,]+") do
+                    local trimmed = word:gsub("^%s*(.-)%s*$", "%1")
+                    if trimmed ~= "" then
+                        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                            if string.lower(itemName):find(string.lower(trimmed), 1, true) then
+                                persistentState.itemToggles[itemName] = true
+                            end
+                        end
+                    end
+                end
+            else
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = false
+                end
+            end
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                persistentState.itemToggles[itemName] = false
+            end
+            ClearItemDrawings()
         end
-        ClearItemDrawings()
     end)
-
+    
+    MainSection:InputText("ammo_filter", "Filter Ammo (comma separated)", "", function(text)
+        if persistentState.categoryToggles["Ammo"] then
+            for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                persistentState.itemToggles[itemName] = false
+            end
+            
+            if text == "" or text:lower() == "all" then
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = true
+                end
+            elseif text:lower() ~= "none" then
+                for word in string.gmatch(text, "[^,]+") do
+                    local trimmed = word:gsub("^%s*(.-)%s*$", "%1")
+                    if trimmed ~= "" then
+                        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                            if string.lower(itemName):find(string.lower(trimmed), 1, true) then
+                                persistentState.itemToggles[itemName] = true
+                            end
+                        end
+                    end
+                end
+            end
+            
+            itemCache = {}
+            if persistentState.itemEspEnabled then
+                ClearItemDrawings()
+            end
+        end
+    end)
+    
     MainSection:Toggle("item_category_Food", "Food", function(state)
         persistentState.categoryToggles["Food"] = state
         for _, itemName in ipairs(ITEM_TYPES["Food"] or {}) do
             persistentState.itemToggles[itemName] = state
         end
-        ClearItemDrawings()
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
     end)
-
+    
     MainSection:Toggle("item_category_Misc", "Misc", function(state)
         persistentState.categoryToggles["Misc"] = state
         for _, itemName in ipairs(ITEM_TYPES["Misc"] or {}) do
             persistentState.itemToggles[itemName] = state
         end
-        ClearItemDrawings()
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
     end)
-
+    
     MainSection:Spacing()
     MainSection:Spacing()
-
+    
+    MainSection:Button("Rescan Items", function()
+        if not persistentState.itemEspEnabled then
+            SafeNotify("Enable Item ESP first!", "Item ESP", 2)
+            return
+        end
+        
+        itemCache = {}
+        ClearItemDrawings()
+        
+        local camera = workspace.CurrentCamera
+        if camera then
+            itemCache = ScanAllItems()
+            if #itemCache > 0 then
+                SafeNotify("Rescanned - found " .. #itemCache .. " items", "Item ESP", 2)
+            else
+                SafeNotify("No items found. Check your toggles.", "Item ESP", 2)
+            end
+        else
+            SafeNotify("No camera found!", "Item ESP", 2)
+        end
+    end)
+    
+    MainSection:Spacing()
+    MainSection:Spacing()
+    
     MainSection:Toggle("corpse_esp_toggle", "Enable Corpse ESP", function(state)
         persistentState.corpseEspEnabled = state
         if state then
@@ -1211,14 +1313,14 @@ UI.AddTab("Walking Dead", function(tab)
             SafeNotify("Corpse ESP disabled", nil, 2)
         end
     end)
-
+    
     MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 2000, 1000, function(value)
         persistentState.corpseDistance = value
     end)
-
+    
     MainSection:Spacing()
     MainSection:Spacing()
-
+    
     MainSection:Toggle("inspector_toggle", "Enable Backpack Inspector", function(state)
         persistentState.inspectorEnabled = state
         if state then
@@ -1228,7 +1330,7 @@ UI.AddTab("Walking Dead", function(tab)
             SafeNotify("Backpack Inspector disabled", nil, 2)
         end
     end)
-
+    
     MainSection:SliderFloat("ui_scale", "UI Scale", MIN_SCALE, MAX_SCALE, 1.0, "%.1f", function(value)
         persistentState.uiScale = value
         ClearPanel()
