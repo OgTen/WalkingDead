@@ -34,6 +34,8 @@ local persistentState = {
     equipmentCategoryToggles = {},
     teleportEnabled = false,
     selectedPOI = 0,
+    bannerEspEnabled = false,
+    bannerDistance = 500,
 }
 
 local POI_LOCATIONS = {
@@ -673,6 +675,177 @@ local function RenderCorpseESP()
     end
 end
 
+local bannerDrawings = {}
+local bannerCache = {}
+local bannerFrameCounter = 0
+local BANNER_UPDATE_EVERY_N_FRAMES = 3
+local bannerScanned = false
+
+local function ClearBannerDrawings()
+    for _, drawing in ipairs(bannerDrawings) do
+        pcall(drawing.Remove, drawing)
+    end
+    bannerDrawings = {}
+end
+
+local function ScanBanners()
+    local banners = {}
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "Banner" then
+            local position = nil
+            
+            local ok, pos = pcall(function()
+                return obj.Position
+            end)
+            if ok and pos and typeof(pos) == "Vector3" then
+                position = pos
+            end
+            
+            if not position then
+                local ok2, part = pcall(function()
+                    return obj:FindFirstChildWhichIsA("BasePart")
+                end)
+                if ok2 and part then
+                    position = part.Position
+                end
+            end
+            
+            if not position and obj:IsA("Model") then
+                local ok3, pos3 = pcall(function()
+                    return obj:GetPivot().Position
+                end)
+                if ok3 and pos3 and pos3.Magnitude > 0 then
+                    position = pos3
+                end
+            end
+            
+            if not position then
+                local ok4, cframe = pcall(function()
+                    return obj.CFrame
+                end)
+                if ok4 and cframe then
+                    position = cframe.Position
+                end
+            end
+            
+            if position then
+                table.insert(banners, {
+                    Name = "Banner",
+                    Position = position,
+                    Instance = obj,
+                })
+                print("Found Banner at: " .. tostring(position))
+            end
+        end
+    end
+    
+    print("Total banners found: " .. #banners)
+    bannerScanned = true
+    return banners
+end
+
+local function RenderBannerESP()
+    persistentState.bannerEspEnabled = UI.GetValue("banner_esp_toggle") or false
+
+    if not persistentState.bannerEspEnabled then
+        ClearBannerDrawings()
+        bannerScanned = false
+        bannerCache = {}
+        return
+    end
+
+    if #bannerCache == 0 and not bannerScanned then
+        bannerCache = ScanBanners()
+        if #bannerCache == 0 then
+            return
+        end
+        SafeNotify("Banner ESP Enabled - " .. #bannerCache .. " banners found", "Banner ESP", 2)
+    end
+    
+    if #bannerCache == 0 then
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    persistentState.bannerDistance = UI.GetValue("banner_distance") or 500
+    local cameraPos = camera.Position
+
+    bannerFrameCounter = bannerFrameCounter + 1
+    if bannerFrameCounter > BANNER_UPDATE_EVERY_N_FRAMES then
+        bannerFrameCounter = 0
+    end
+
+    if bannerFrameCounter ~= 0 then
+        return
+    end
+
+    local visibleBanners = {}
+    for _, banner in ipairs(bannerCache) do
+        local distance = (banner.Position - cameraPos).Magnitude
+        if distance <= persistentState.bannerDistance then
+            local screenPos, onScreen = WorldToScreen(banner.Position + Vector3.new(0, 1.5, 0))
+            if onScreen then
+                table.insert(visibleBanners, {
+                    Text = "Banner [" .. math.floor(distance) .. "m]",
+                    Position = screenPos,
+                })
+            end
+        end
+    end
+
+    local visibleCount = #visibleBanners
+
+    if visibleCount == 0 then
+        ClearBannerDrawings()
+        return
+    end
+
+    local drawingCount = #bannerDrawings
+
+    if visibleCount ~= drawingCount then
+        if visibleCount < drawingCount then
+            for i = visibleCount + 1, drawingCount do
+                if bannerDrawings[i] then
+                    pcall(bannerDrawings[i].Remove, bannerDrawings[i])
+                end
+            end
+            for i = #bannerDrawings, visibleCount + 1, -1 do
+                table.remove(bannerDrawings, i)
+            end
+        end
+        
+        while #bannerDrawings < visibleCount do
+            local label = Drawing.new("Text")
+            label.Font = Drawing.Fonts.System
+            label.Size = 11
+            label.Color = Color3.fromRGB(0, 200, 255)
+            label.Outline = true
+            label.Center = true
+            label.ZIndex = 999
+            label.Visible = true
+            table.insert(bannerDrawings, label)
+        end
+    end
+
+    for i, banner in ipairs(visibleBanners) do
+        local drawing = bannerDrawings[i]
+        if drawing then
+            drawing.Position = banner.Position
+            drawing.Text = banner.Text
+            drawing.Visible = true
+        end
+    end
+
+    for i = visibleCount + 1, #bannerDrawings do
+        if bannerDrawings[i] then
+            bannerDrawings[i].Visible = false
+        end
+    end
+end
+
 local panelDrawings = {}
 local cachedPlayer = nil
 local cachedData = nil
@@ -1059,12 +1232,15 @@ local function ResetAllToggles()
     persistentState.corpseEspEnabled = false
     persistentState.teleportEnabled = false
     persistentState.selectedPOI = 0
+    persistentState.bannerEspEnabled = false
 
     ClearItemDrawings()
     ClearPanel()
     ClearCorpseDrawings()
+    ClearBannerDrawings()
     itemCache = {}
     corpseCache = {}
+    bannerCache = {}
 end
 
 local function SetAllUITogglesFalse()
@@ -1074,6 +1250,8 @@ local function SetAllUITogglesFalse()
     UI.SetValue("corpse_distance", 1000)
     UI.SetValue("teleport_enabled", false)
     UI.SetValue("teleport_poi", 0)
+    UI.SetValue("banner_esp_toggle", false)
+    UI.SetValue("banner_distance", 500)
     
     UI.SetValue("item_category_Equipment", false)
     UI.SetValue("item_category_Weapons", false)
@@ -1088,8 +1266,6 @@ local function SetAllUITogglesFalse()
     end
 end
 
-local toggleRefs = {}
-
 local function RestoreUIState()
     UI.SetValue("inspector_toggle", persistentState.inspectorEnabled or false)
     UI.SetValue("ui_scale", persistentState.uiScale or 1.0)
@@ -1099,6 +1275,8 @@ local function RestoreUIState()
     UI.SetValue("corpse_distance", persistentState.corpseDistance or 1000)
     UI.SetValue("teleport_enabled", persistentState.teleportEnabled or false)
     UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
+    UI.SetValue("banner_esp_toggle", persistentState.bannerEspEnabled or false)
+    UI.SetValue("banner_distance", persistentState.bannerDistance or 500)
     
     UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
@@ -1302,6 +1480,23 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Spacing()
     MainSection:Spacing()
     
+    MainSection:Toggle("banner_esp_toggle", "Enable Banner ESP", function(state)
+        persistentState.bannerEspEnabled = state
+        if state then
+            bannerCache = {}
+            bannerScanned = false
+            SafeNotify("Banner ESP enabled", "Banner ESP", 2)
+        else
+            ClearBannerDrawings()
+            bannerCache = {}
+            SafeNotify("Banner ESP disabled", "Banner ESP", 2)
+        end
+    end)
+    
+    MainSection:SliderInt("banner_distance", "Banner Distance", 10, 2000, 500, function(value)
+        persistentState.bannerDistance = value
+    end)
+    
     MainSection:Toggle("corpse_esp_toggle", "Enable Corpse ESP", function(state)
         persistentState.corpseEspEnabled = state
         if state then
@@ -1367,6 +1562,7 @@ RunService.RenderStepped:Connect(function()
     RenderPanel()
     RenderItemESP()
     RenderCorpseESP()
+    RenderBannerESP()
 end)
 
 ResetAllToggles()
