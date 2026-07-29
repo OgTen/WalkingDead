@@ -735,12 +735,10 @@ local function ScanBanners()
                     Position = position,
                     Instance = obj,
                 })
-                print("Found Banner at: " .. tostring(position))
             end
         end
     end
     
-    print("Total banners found: " .. #banners)
     bannerScanned = true
     return banners
 end
