@@ -118,7 +118,7 @@ local ITEM_TYPES = {
         "Battle Hammer", "M40", "VSS Vintorez", "Mace", "Shiv", "Spiked Bat", 
         "Wooden Bat", "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
         "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver", "Combat Knife",
-        "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
+        "Hammer", "Nightstick", "Hunting Knife", "Tactical knife", "MK 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
