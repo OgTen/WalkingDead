@@ -38,6 +38,8 @@ local persistentState = {
     bannerDistance = 500,
 }
 
+local emptyScanTracker = {}
+
 local POI_LOCATIONS = {
     ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
     ["PD"] = Vector3.new(3814.08, 125.18, -686.19),
@@ -136,10 +138,13 @@ local ITEM_TYPES = {
         "Pork & Beans", "Salty Crackers", "Tomato Soup", "Chicken Soup",
         "Ham Spread",
     },
+    ["Keycards"] = {
+        "Bunker Access Keycard", "Prison Armory Access Keycard",
+        "Satellite outpost Access Keycard", "Police Armory Access Keycard",
+    },
     ["Misc"] = {
         "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
-        "Weapon Cleaning Kit", "Cloth", "Bunker Access Keycard", "Prison Armory Access Keycard",
-        "Satellite outpost Access Keycard", "Police Armory Access Keycard",
+        "Weapon Cleaning Kit", "Cloth",
     },
     ["Equipment"] = {
         "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
@@ -240,6 +245,8 @@ local function GetItemColor(name)
         return Color3.fromRGB(255, 255, 100)
     elseif category == "Food" then
         return Color3.fromRGB(100, 255, 100)
+    elseif category == "Keycards" then
+        return Color3.fromRGB(255, 215, 0)
     elseif category == "Misc" then
         return Color3.fromRGB(200, 200, 255)
     elseif category == "Equipment" then
@@ -389,17 +396,31 @@ local function RenderItemESP()
         return
     end
 
+    local enabledCategories = {}
     local hasEnabled = false
-    for _, enabled in pairs(persistentState.itemToggles) do
-        if enabled then
-            hasEnabled = true
-            break
+    for category, items in pairs(ITEM_TYPES) do
+        for _, itemName in ipairs(items) do
+            if persistentState.itemToggles[itemName] then
+                hasEnabled = true
+                enabledCategories[category] = true
+                break
+            end
         end
     end
 
     if not hasEnabled then
         ClearItemDrawings()
         itemCache = {}
+        return
+    end
+
+    local scanKey = ""
+    for category, _ in pairs(enabledCategories) do
+        scanKey = scanKey .. category .. ","
+    end
+
+    if emptyScanTracker[scanKey] then
+        ClearItemDrawings()
         return
     end
 
@@ -412,10 +433,10 @@ local function RenderItemESP()
     if #itemCache == 0 then
         itemCache = ScanAllItems()
         if #itemCache == 0 then
+            emptyScanTracker[scanKey] = true
             ClearItemDrawings()
             return
         end
-        SafeNotify("Item ESP cached " .. #itemCache .. " items", "Item ESP", 1)
     end
 
     itemFrameCounter = itemFrameCounter + 1
@@ -1255,6 +1276,7 @@ local function SetAllUITogglesFalse()
     UI.SetValue("item_category_Weapons", false)
     UI.SetValue("item_category_Ammo", false)
     UI.SetValue("item_category_Food", false)
+    UI.SetValue("item_category_Keycards", false)
     UI.SetValue("item_category_Misc", false)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
@@ -1263,6 +1285,8 @@ local function SetAllUITogglesFalse()
         end
     end
 end
+
+local toggleRefs = {}
 
 local function RestoreUIState()
     UI.SetValue("inspector_toggle", persistentState.inspectorEnabled or false)
@@ -1280,6 +1304,7 @@ local function RestoreUIState()
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
     UI.SetValue("item_category_Ammo", persistentState.categoryToggles["Ammo"] or false)
     UI.SetValue("item_category_Food", persistentState.categoryToggles["Food"] or false)
+    UI.SetValue("item_category_Keycards", persistentState.categoryToggles["Keycards"] or false)
     UI.SetValue("item_category_Misc", persistentState.categoryToggles["Misc"] or false)
 
     for name, enabled in pairs(persistentState.itemToggles) do
@@ -1302,6 +1327,7 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Toggle("item_esp_toggle", "Enable Item ESP", function(state)
         persistentState.itemEspEnabled = state
         if state then
+            emptyScanTracker = {}
             if #itemCache == 0 then
                 local camera = workspace.CurrentCamera
                 if camera then
@@ -1309,7 +1335,7 @@ UI.AddTab("Walking Dead", function(tab)
                     if #itemCache > 0 then
                         SafeNotify("Item ESP enabled", "Item ESP", 2)
                     else
-                        SafeNotify("No items found. Check your toggles.", "Item ESP", 2)
+                        SafeNotify("Item ESP enabled - no items nearby", "Item ESP", 2)
                     end
                 end
             else
@@ -1318,6 +1344,7 @@ UI.AddTab("Walking Dead", function(tab)
         else
             ClearItemDrawings()
             itemCache = {}
+            emptyScanTracker = {}
             SafeNotify("Item ESP disabled", "Item ESP", 2)
         end
     end)
@@ -1449,7 +1476,20 @@ UI.AddTab("Walking Dead", function(tab)
             ClearItemDrawings()
         end
     end)
-    
+
+    MainSection:Toggle("item_category_Keycards", "Keycards", function(state)
+        persistentState.categoryToggles["Keycards"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Keycards"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
+    end)
+
     MainSection:Spacing()
     MainSection:Spacing()
     
@@ -1459,6 +1499,7 @@ UI.AddTab("Walking Dead", function(tab)
             return
         end
         
+        emptyScanTracker = {}
         itemCache = {}
         ClearItemDrawings()
         
@@ -1468,7 +1509,7 @@ UI.AddTab("Walking Dead", function(tab)
             if #itemCache > 0 then
                 SafeNotify("Rescanned - found " .. #itemCache .. " items", "Item ESP", 2)
             else
-                SafeNotify("No items found. Check your toggles.", "Item ESP", 2)
+                SafeNotify("No items found nearby", "Item ESP", 2)
             end
         else
             SafeNotify("No camera found!", "Item ESP", 2)
