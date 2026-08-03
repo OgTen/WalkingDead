@@ -2,6 +2,7 @@ local player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local lastNotifyTime = 0
 local NOTIFY_COOLDOWN = 1.0
@@ -40,6 +41,9 @@ local persistentState = {
 
 local emptyScanTracker = {}
 
+local bannerRenderCounter = 0
+local corpseRenderCounter = 0
+
 local POI_LOCATIONS = {
     ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
     ["PD"] = Vector3.new(3814.08, 125.18, -686.19),
@@ -67,6 +71,9 @@ table.sort(POI_NAMES)
 
 local character = nil
 local hrp = nil
+local itemRescanKeybind = nil
+local bannerRescanKeybind = nil
+local corpseRescanKeybind = nil
 
 local function EnsureCharacter()
     if not character or not character.Parent then
@@ -387,6 +394,125 @@ local function ScanAllItems()
     return foundItems
 end
 
+function ScanBanners()
+    local banners = {}
+    
+    local success, results = pcall(function()
+        local found = {}
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj.Name == "Banner" then
+                local position = nil
+                
+                local ok, pos = pcall(function()
+                    return obj.Position
+                end)
+                if ok and pos and typeof(pos) == "Vector3" then
+                    position = pos
+                end
+                
+                if not position then
+                    local ok2, part = pcall(function()
+                        return obj:FindFirstChildWhichIsA("BasePart")
+                    end)
+                    if ok2 and part then
+                        position = part.Position
+                    end
+                end
+                
+                if not position and obj:IsA("Model") then
+                    local ok3, pos3 = pcall(function()
+                        return obj:GetPivot().Position
+                    end)
+                    if ok3 and pos3 and pos3.Magnitude > 0 then
+                        position = pos3
+                    end
+                end
+                
+                if not position then
+                    local ok4, cframe = pcall(function()
+                        return obj.CFrame
+                    end)
+                    if ok4 and cframe then
+                        position = cframe.Position
+                    end
+                end
+                
+                if position then
+                    table.insert(found, {
+                        Name = "Banner",
+                        Position = position,
+                        Instance = obj,
+                    })
+                end
+            end
+        end
+        return found
+    end)
+    
+    if success and results then
+        banners = results
+    end
+    
+    bannerScanned = true
+    return banners
+end
+
+function ScanCorpses()
+    local corpses = {}
+    
+    local success, results = pcall(function()
+        local found = {}
+        local corpseFolder = Workspace:FindFirstChild("Corpses")
+        if not corpseFolder then
+            return found
+        end
+
+        for _, child in ipairs(corpseFolder:GetChildren()) do
+            if child:IsA("Model") then
+                local position = nil
+                
+                local rootPart = child:FindFirstChild("HumanoidRootPart")
+                if rootPart and rootPart:IsA("BasePart") then
+                    position = rootPart.Position
+                end
+                
+                if not position then
+                    for _, part in ipairs(child:GetChildren()) do
+                        if part:IsA("MeshPart") or part:IsA("Part") or part:IsA("BasePart") then
+                            position = part.Position
+                            break
+                        end
+                    end
+                end
+                
+                if not position then
+                    local ok, result = pcall(function()
+                        return child:GetPivot().Position
+                    end)
+                    if ok and result and result.Magnitude > 0 then
+                        position = result
+                    end
+                end
+                
+                if position then
+                    table.insert(found, {
+                        Name = child.Name,
+                        Position = position,
+                    })
+                end
+            end
+        end
+        return found
+    end)
+    
+    if success and results then
+        corpses = results
+    end
+    
+    corpseScanned = true
+    return corpses
+end
+
 local function RenderItemESP()
     persistentState.itemEspEnabled = UI.GetValue("item_esp_toggle") or false
 
@@ -553,70 +679,22 @@ local function ClearCorpseDrawings()
     corpseDrawings = {}
 end
 
-local function ScanCorpses()
-    local corpses = {}
-    local corpseFolder = Workspace:FindFirstChild("Corpses")
-    if not corpseFolder then
-        corpseScanned = true
-        return corpses
-    end
-
-    for _, child in ipairs(corpseFolder:GetChildren()) do
-        if child:IsA("Model") then
-            local position = nil
-            
-            local rootPart = child:FindFirstChild("HumanoidRootPart")
-            if rootPart and rootPart:IsA("BasePart") then
-                position = rootPart.Position
-            end
-            
-            if not position then
-                for _, part in ipairs(child:GetChildren()) do
-                    if part:IsA("MeshPart") or part:IsA("Part") or part:IsA("BasePart") then
-                        position = part.Position
-                        break
-                    end
-                end
-            end
-            
-            if not position then
-                local success, result = pcall(function()
-                    return child:GetPivot().Position
-                end)
-                if success and result and result.Magnitude > 0 then
-                    position = result
-                end
-            end
-            
-            if position then
-                table.insert(corpses, {
-                    Name = child.Name,
-                    Position = position,
-                })
-            end
-        end
-    end
-    
-    corpseScanned = true
-    return corpses
-end
-
 local function RenderCorpseESP()
     persistentState.corpseEspEnabled = UI.GetValue("corpse_esp_toggle") or false
 
     if not persistentState.corpseEspEnabled then
         ClearCorpseDrawings()
-        corpseScanned = false
         corpseCache = {}
+        corpseScanned = false
         return
     end
 
-    if #corpseCache == 0 and not corpseScanned then
+    if not corpseScanned then
         corpseCache = ScanCorpses()
-        if #corpseCache == 0 then
-            return
+        corpseScanned = true
+        if #corpseCache > 0 then
+            SafeNotify("Corpse ESP Enabled - " .. #corpseCache .. " corpses found", "Corpse ESP", 2)
         end
-        SafeNotify("Corpse ESP Enabled", "Corpse ESP", 2)
     end
     
     if #corpseCache == 0 then
@@ -709,77 +787,22 @@ local function ClearBannerDrawings()
     bannerDrawings = {}
 end
 
-local function ScanBanners()
-    local banners = {}
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "Banner" then
-            local position = nil
-            
-            local ok, pos = pcall(function()
-                return obj.Position
-            end)
-            if ok and pos and typeof(pos) == "Vector3" then
-                position = pos
-            end
-            
-            if not position then
-                local ok2, part = pcall(function()
-                    return obj:FindFirstChildWhichIsA("BasePart")
-                end)
-                if ok2 and part then
-                    position = part.Position
-                end
-            end
-            
-            if not position and obj:IsA("Model") then
-                local ok3, pos3 = pcall(function()
-                    return obj:GetPivot().Position
-                end)
-                if ok3 and pos3 and pos3.Magnitude > 0 then
-                    position = pos3
-                end
-            end
-            
-            if not position then
-                local ok4, cframe = pcall(function()
-                    return obj.CFrame
-                end)
-                if ok4 and cframe then
-                    position = cframe.Position
-                end
-            end
-            
-            if position then
-                table.insert(banners, {
-                    Name = "Banner",
-                    Position = position,
-                    Instance = obj,
-                })
-            end
-        end
-    end
-    
-    bannerScanned = true
-    return banners
-end
-
 local function RenderBannerESP()
     persistentState.bannerEspEnabled = UI.GetValue("banner_esp_toggle") or false
 
     if not persistentState.bannerEspEnabled then
         ClearBannerDrawings()
-        bannerScanned = false
         bannerCache = {}
+        bannerScanned = false
         return
     end
 
-    if #bannerCache == 0 and not bannerScanned then
+    if not bannerScanned then
         bannerCache = ScanBanners()
-        if #bannerCache == 0 then
-            return
+        bannerScanned = true
+        if #bannerCache > 0 then
+            SafeNotify("Banner ESP Enabled - " .. #bannerCache .. " banners found", "Banner ESP", 2)
         end
-        SafeNotify("Banner ESP Enabled - " .. #bannerCache .. " banners found", "Banner ESP", 2)
     end
     
     if #bannerCache == 0 then
@@ -1349,6 +1372,9 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
     
+    itemRescanKeybind = MainSection:Keybind("item_rescan_kb", 0x49, "click")
+    itemRescanKeybind:AddToHotkey("Rescan Item ESP", "item_esp_toggle")
+    
     MainSection:SliderInt("item_distance", "Item Distance", 10, 2000, 150, function(value)
         persistentState.itemDistance = value
     end)
@@ -1493,32 +1519,6 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Spacing()
     MainSection:Spacing()
     
-    MainSection:Button("Rescan Items", function()
-        if not persistentState.itemEspEnabled then
-            SafeNotify("Enable Item ESP first!", "Item ESP", 2)
-            return
-        end
-        
-        emptyScanTracker = {}
-        itemCache = {}
-        ClearItemDrawings()
-        
-        local camera = workspace.CurrentCamera
-        if camera then
-            itemCache = ScanAllItems()
-            if #itemCache > 0 then
-                SafeNotify("Rescanned - found " .. #itemCache .. " items", "Item ESP", 2)
-            else
-                SafeNotify("No items found nearby", "Item ESP", 2)
-            end
-        else
-            SafeNotify("No camera found!", "Item ESP", 2)
-        end
-    end)
-    
-    MainSection:Spacing()
-    MainSection:Spacing()
-    
     MainSection:Toggle("banner_esp_toggle", "Enable Banner ESP", function(state)
         persistentState.bannerEspEnabled = state
         if state then
@@ -1528,25 +1528,37 @@ UI.AddTab("Walking Dead", function(tab)
         else
             ClearBannerDrawings()
             bannerCache = {}
+            bannerScanned = false
             SafeNotify("Banner ESP disabled", "Banner ESP", 2)
         end
     end)
+
+    bannerRescanKeybind = MainSection:Keybind("banner_rescan_kb", 0x42, "click")
+    bannerRescanKeybind:AddToHotkey("Rescan Banner ESP", "banner_esp_toggle")
     
     MainSection:SliderInt("banner_distance", "Banner Distance", 10, 2000, 500, function(value)
         persistentState.bannerDistance = value
     end)
     
+    MainSection:Spacing()
+    MainSection:Spacing()
+    
     MainSection:Toggle("corpse_esp_toggle", "Enable Corpse ESP", function(state)
         persistentState.corpseEspEnabled = state
         if state then
             corpseCache = {}
+            corpseScanned = false
             SafeNotify("Corpse ESP enabled", nil, 2)
         else
             ClearCorpseDrawings()
             corpseCache = {}
+            corpseScanned = false
             SafeNotify("Corpse ESP disabled", nil, 2)
         end
     end)
+    
+    corpseRescanKeybind = MainSection:Keybind("corpse_rescan_kb", 0x43, "click")
+    corpseRescanKeybind:AddToHotkey("Rescan Corpse ESP", "corpse_esp_toggle")
     
     MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 2000, 1000, function(value)
         persistentState.corpseDistance = value
@@ -1595,6 +1607,62 @@ UI.AddTab("Walking Dead", function(tab)
 
     task.wait(0.1)
     RestoreUIState()
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    local key = input.KeyCode
+    
+    if UI.GetValue("item_esp_toggle") == true and itemRescanKeybind then
+        local boundKey = itemRescanKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            pcall(function()
+                itemCache = {}
+                ClearItemDrawings()
+                emptyScanTracker = {}
+                itemCache = ScanAllItems()
+                if #itemCache > 0 then
+                    SafeNotify("Item ESP rescanned - found " .. #itemCache .. " items", "Rescan", 2)
+                else
+                    SafeNotify("Item ESP rescanned - no items nearby", "Rescan", 2)
+                end
+            end)
+        end
+    end
+    
+    if UI.GetValue("banner_esp_toggle") == true and bannerRescanKeybind then
+        local boundKey = bannerRescanKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            pcall(function()
+                bannerCache = {}
+                ClearBannerDrawings()
+                bannerScanned = false
+                SafeNotify("Banner ESP rescanning...", "Rescan", 1)
+            end)
+        end
+    end
+    
+    if UI.GetValue("corpse_esp_toggle") == true and corpseRescanKeybind then
+        local boundKey = corpseRescanKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            pcall(function()
+                corpseCache = {}
+                ClearCorpseDrawings()
+                corpseScanned = false
+                SafeNotify("Corpse ESP rescanning...", "Rescan", 1)
+            end)
+        end
+    end
 end)
 
 RunService.RenderStepped:Connect(function()
