@@ -656,7 +656,7 @@ local function RenderCorpseESP()
         corpseCache = ScanCorpses()
         corpseScanned = true
         if #corpseCache > 0 then
-            SafeNotify("Corpse ESP Enabled - " .. #corpseCache .. " corpses found", "Corpse ESP", 2)
+            SafeNotify("Corpse ESP - " .. #corpseCache .. " corpses found", "Corpse ESP", 2)
         end
     end
     
@@ -764,7 +764,7 @@ local function RenderBannerESP()
         bannerCache = ScanBanners()
         bannerScanned = true
         if #bannerCache > 0 then
-            SafeNotify("Banner ESP Enabled - " .. #bannerCache .. " banners found", "Banner ESP", 2)
+            SafeNotify("Banner ESP - " .. #bannerCache .. " banners found", "Banner ESP", 2)
         end
     end
     
@@ -1338,7 +1338,7 @@ UI.AddTab("Walking Dead", function(tab)
     itemRescanKeybind = MainSection:Keybind("item_rescan_kb", 0x49, "click")
     itemRescanKeybind:AddToHotkey("Rescan Item ESP", "item_esp_toggle")
     
-    MainSection:SliderInt("item_distance", "Item Distance", 10, 2000, 150, function(value)
+    MainSection:SliderInt("item_distance", "Item Distance", 10, 3000, 150, function(value)
         persistentState.itemDistance = value
     end)
     
@@ -1499,7 +1499,7 @@ UI.AddTab("Walking Dead", function(tab)
     bannerRescanKeybind = MainSection:Keybind("banner_rescan_kb", 0x42, "click")
     bannerRescanKeybind:AddToHotkey("Rescan Banner ESP", "banner_esp_toggle")
     
-    MainSection:SliderInt("banner_distance", "Banner Distance", 10, 2000, 500, function(value)
+    MainSection:SliderInt("banner_distance", "Banner Distance", 10, 3000, 500, function(value)
         persistentState.bannerDistance = value
     end)
     
@@ -1523,7 +1523,7 @@ UI.AddTab("Walking Dead", function(tab)
     corpseRescanKeybind = MainSection:Keybind("corpse_rescan_kb", 0x43, "click")
     corpseRescanKeybind:AddToHotkey("Rescan Corpse ESP", "corpse_esp_toggle")
     
-    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 2000, 1000, function(value)
+    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 3000, 1000, function(value)
         persistentState.corpseDistance = value
     end)
     
