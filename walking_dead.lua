@@ -397,60 +397,23 @@ end
 function ScanBanners()
     local banners = {}
     
-    local success, results = pcall(function()
-        local found = {}
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj.Name == "Banner" then
-                local position = nil
-                
-                local ok, pos = pcall(function()
-                    return obj.Position
-                end)
-                if ok and pos and typeof(pos) == "Vector3" then
-                    position = pos
-                end
-                
-                if not position then
-                    local ok2, part = pcall(function()
-                        return obj:FindFirstChildWhichIsA("BasePart")
-                    end)
-                    if ok2 and part then
-                        position = part.Position
-                    end
-                end
-                
-                if not position and obj:IsA("Model") then
-                    local ok3, pos3 = pcall(function()
-                        return obj:GetPivot().Position
-                    end)
-                    if ok3 and pos3 and pos3.Magnitude > 0 then
-                        position = pos3
-                    end
-                end
-                
-                if not position then
-                    local ok4, cframe = pcall(function()
-                        return obj.CFrame
-                    end)
-                    if ok4 and cframe then
-                        position = cframe.Position
-                    end
-                end
-                
-                if position then
-                    table.insert(found, {
-                        Name = "Banner",
-                        Position = position,
-                        Instance = obj,
-                    })
-                end
+    local bannerFolder = Workspace:FindFirstChild("Banners")
+    if not bannerFolder then
+        bannerScanned = true
+        return banners
+    end
+    
+    for _, banner in ipairs(bannerFolder:GetChildren()) do
+        if banner:IsA("Model") and banner.Name == "Banner" then
+            local icon = banner:FindFirstChild("Icon")
+            if icon and icon:IsA("BasePart") then
+                table.insert(banners, {
+                    Name = "Banner",
+                    Position = icon.Position,
+                    Instance = icon,
+                })
             end
         end
-        return found
-    end)
-    
-    if success and results then
-        banners = results
     end
     
     bannerScanned = true
