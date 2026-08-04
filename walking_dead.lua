@@ -37,12 +37,15 @@ local persistentState = {
     selectedPOI = 0,
     bannerEspEnabled = false,
     bannerDistance = 500,
+    carEspEnabled = false,
+    carDistance = 500,
 }
 
 local emptyScanTracker = {}
 
 local bannerRenderCounter = 0
 local corpseRenderCounter = 0
+local carRenderCounter = 0
 
 local POI_LOCATIONS = {
     ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
@@ -74,6 +77,7 @@ local hrp = nil
 local itemRescanKeybind = nil
 local bannerRescanKeybind = nil
 local corpseRescanKeybind = nil
+local carRescanKeybind = nil
 
 local function EnsureCharacter()
     if not character or not character.Parent then
@@ -124,10 +128,13 @@ local ITEM_TYPES = {
         "SR-25", "M110", "MK14", "M14", "M9", "UMP", "UMP45", "MP5K", "Glock17",
         "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal",
         "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E",
-        "Battle Hammer", "M40", "VSS Vintorez", "Mace", "Shiv", "Spiked Bat", 
-        "Wooden Bat", "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
-        "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver", "Combat Knife",
-        "Hammer", "Nightstick", "Hunting Knife", "Tactical knife", "MK 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
+        "M40", "VSS Vintorez", "MK 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
+    },
+    ["Melee"] = {
+        "Battle Hammer", "Mace", "Shiv", "Spiked Bat", "Wooden Bat",
+        "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
+        "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver",
+        "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
@@ -248,6 +255,8 @@ local function GetItemColor(name)
     local category = GetItemCategory(name)
     if category == "Weapons" then
         return Color3.fromRGB(255, 200, 100)
+    elseif category == "Melee" then
+        return Color3.fromRGB(255, 150, 50)
     elseif category == "Ammo" then
         return Color3.fromRGB(255, 255, 100)
     elseif category == "Food" then
@@ -851,6 +860,197 @@ local function RenderBannerESP()
     end
 end
 
+local carDrawings = {}
+local carCache = {}
+local carFrameCounter = 0
+local CAR_UPDATE_EVERY_N_FRAMES = 3
+local carScanned = false
+local Cars = Workspace:FindFirstChild("Cars")
+
+local function ToAscii(text)
+    if not text then return "Unknown" end
+    local result = ""
+    for i = 1, #text do
+        local byte = text:byte(i)
+        if byte >= 32 and byte <= 126 then
+            result = result .. string.char(byte)
+        end
+    end
+    result = result:gsub("^%s*(.-)%s*$", "%1")
+    result = result:gsub("%s+", " ")
+    if result == "" then result = "Vehicle" end
+    return result
+end
+
+local function ScanCars()
+    carCache = {}
+    local count = 0
+    
+    if not Cars then
+        Cars = Workspace:FindFirstChild("Cars")
+        if not Cars then return 0 end
+    end
+    
+    for _, vehicle in ipairs(Cars:GetChildren()) do
+        if vehicle:IsA("Model") then
+            local crashPart = nil
+            
+            local body = vehicle:FindFirstChild("Body")
+            if body then
+                crashPart = body:FindFirstChild("CrashPart")
+            end
+            
+            if not crashPart then
+                for _, obj in ipairs(vehicle:GetDescendants()) do
+                    if obj.Name == "CrashPart" and obj:IsA("BasePart") then
+                        crashPart = obj
+                        break
+                    end
+                end
+            end
+            
+            if crashPart and crashPart:IsA("BasePart") then
+                local pos = crashPart.Position
+                if pos and typeof(pos) == "Vector3" and pos.Magnitude > 0 then
+                    table.insert(carCache, {
+                        Vehicle = vehicle,
+                        Part = crashPart,
+                        RawName = vehicle.Name,
+                        Position = pos,
+                    })
+                    count = count + 1
+                end
+            end
+        end
+    end
+    
+    carScanned = true
+    return count
+end
+
+local function ClearCarDrawings()
+    for _, drawing in ipairs(carDrawings) do
+        pcall(drawing.Remove, drawing)
+    end
+    carDrawings = {}
+end
+
+local function RenderCarESP()
+    persistentState.carEspEnabled = UI.GetValue("car_esp_toggle") or false
+
+    if not persistentState.carEspEnabled then
+        ClearCarDrawings()
+        carCache = {}
+        carScanned = false
+        return
+    end
+
+    if not carScanned then
+        local count = ScanCars()
+        if count > 0 then
+            SafeNotify("Car ESP - " .. count .. " vehicles found", "Car ESP", 2)
+        end
+    end
+    
+    if #carCache == 0 then
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    persistentState.carDistance = UI.GetValue("car_distance") or 500
+    local cameraPos = camera.Position
+
+    carFrameCounter = carFrameCounter + 1
+    if carFrameCounter > CAR_UPDATE_EVERY_N_FRAMES then
+        carFrameCounter = 0
+    end
+
+    if carFrameCounter ~= 0 then
+        return
+    end
+
+    local visibleCars = {}
+    for i, car in ipairs(carCache) do
+        if not car.Part or not car.Part.Parent then
+            table.remove(carCache, i)
+            continue
+        end
+        
+        local pos = car.Part.Position
+        if not pos or typeof(pos) ~= "Vector3" then
+            table.remove(carCache, i)
+            continue
+        end
+        
+        car.Position = pos
+        
+        local distance = (pos - cameraPos).Magnitude
+        if distance > persistentState.carDistance then
+            continue
+        end
+        
+        local screenPos, onScreen = WorldToScreen(pos + Vector3.new(0, 2, 0))
+        if onScreen then
+            local displayName = ToAscii(car.RawName)
+            table.insert(visibleCars, {
+                Text = displayName .. " [" .. math.floor(distance) .. "m]",
+                Position = screenPos,
+            })
+        end
+    end
+
+    local visibleCount = #visibleCars
+
+    if visibleCount == 0 then
+        ClearCarDrawings()
+        return
+    end
+
+    local drawingCount = #carDrawings
+
+    if visibleCount ~= drawingCount then
+        if visibleCount < drawingCount then
+            for i = visibleCount + 1, drawingCount do
+                if carDrawings[i] then
+                    pcall(carDrawings[i].Remove, carDrawings[i])
+                end
+            end
+            for i = #carDrawings, visibleCount + 1, -1 do
+                table.remove(carDrawings, i)
+            end
+        end
+        
+        while #carDrawings < visibleCount do
+            local label = Drawing.new("Text")
+            label.Font = Drawing.Fonts.System
+            label.Size = 11
+            label.Color = Color3.fromRGB(255, 200, 50)
+            label.Outline = true
+            label.Center = true
+            label.ZIndex = 999
+            label.Visible = true
+            table.insert(carDrawings, label)
+        end
+    end
+
+    for i, car in ipairs(visibleCars) do
+        local drawing = carDrawings[i]
+        if drawing then
+            drawing.Position = car.Position
+            drawing.Text = car.Text
+            drawing.Visible = true
+        end
+    end
+
+    for i = visibleCount + 1, #carDrawings do
+        if carDrawings[i] then
+            carDrawings[i].Visible = false
+        end
+    end
+end
+
 local panelDrawings = {}
 local cachedPlayer = nil
 local cachedData = nil
@@ -1238,14 +1438,17 @@ local function ResetAllToggles()
     persistentState.teleportEnabled = false
     persistentState.selectedPOI = 0
     persistentState.bannerEspEnabled = false
+    persistentState.carEspEnabled = false
 
     ClearItemDrawings()
     ClearPanel()
     ClearCorpseDrawings()
     ClearBannerDrawings()
+    ClearCarDrawings()
     itemCache = {}
     corpseCache = {}
     bannerCache = {}
+    carCache = {}
 end
 
 local function SetAllUITogglesFalse()
@@ -1257,9 +1460,12 @@ local function SetAllUITogglesFalse()
     UI.SetValue("teleport_poi", 0)
     UI.SetValue("banner_esp_toggle", false)
     UI.SetValue("banner_distance", 500)
+    UI.SetValue("car_esp_toggle", false)
+    UI.SetValue("car_distance", 500)
     
     UI.SetValue("item_category_Equipment", false)
     UI.SetValue("item_category_Weapons", false)
+    UI.SetValue("item_category_Melee", false)
     UI.SetValue("item_category_Ammo", false)
     UI.SetValue("item_category_Food", false)
     UI.SetValue("item_category_Keycards", false)
@@ -1285,9 +1491,12 @@ local function RestoreUIState()
     UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
     UI.SetValue("banner_esp_toggle", persistentState.bannerEspEnabled or false)
     UI.SetValue("banner_distance", persistentState.bannerDistance or 500)
+    UI.SetValue("car_esp_toggle", persistentState.carEspEnabled or false)
+    UI.SetValue("car_distance", persistentState.carDistance or 500)
     
     UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
+    UI.SetValue("item_category_Melee", persistentState.categoryToggles["Melee"] or false)
     UI.SetValue("item_category_Ammo", persistentState.categoryToggles["Ammo"] or false)
     UI.SetValue("item_category_Food", persistentState.categoryToggles["Food"] or false)
     UI.SetValue("item_category_Keycards", persistentState.categoryToggles["Keycards"] or false)
@@ -1361,6 +1570,19 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Toggle("item_category_Weapons", "Weapons", function(state)
         persistentState.categoryToggles["Weapons"] = state
         for _, itemName in ipairs(ITEM_TYPES["Weapons"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            ClearItemDrawings()
+        else
+            ClearItemDrawings()
+        end
+    end)
+
+    MainSection:Toggle("item_category_Melee", "Melee", function(state)
+        persistentState.categoryToggles["Melee"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Melee"] or {}) do
             persistentState.itemToggles[itemName] = state
         end
         if state then
@@ -1530,6 +1752,30 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Spacing()
     MainSection:Spacing()
     
+    MainSection:Toggle("car_esp_toggle", "Enable Vehicle ESP", function(state)
+        persistentState.carEspEnabled = state
+        if state then
+            carCache = {}
+            carScanned = false
+            SafeNotify("Vehicle ESP enabled", "Vehicle ESP", 2)
+        else
+            ClearCarDrawings()
+            carCache = {}
+            carScanned = false
+            SafeNotify("Vehicle ESP disabled", "Vehicle ESP", 2)
+        end
+    end)
+
+    carRescanKeybind = MainSection:Keybind("car_rescan_kb", 0x56, "click")
+    carRescanKeybind:AddToHotkey("Rescan Vehicle ESP", "car_esp_toggle")
+    
+    MainSection:SliderInt("car_distance", "Vehicle Distance", 10, 3000, 500, function(value)
+        persistentState.carDistance = value
+    end)
+    
+    MainSection:Spacing()
+    MainSection:Spacing()
+    
     MainSection:Toggle("inspector_toggle", "Enable Backpack Inspector", function(state)
         persistentState.inspectorEnabled = state
         if state then
@@ -1626,6 +1872,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end)
         end
     end
+    
+    if UI.GetValue("car_esp_toggle") == true and carRescanKeybind then
+        local boundKey = carRescanKeybind:GetKey()
+        if boundKey >= 65 and boundKey <= 90 then
+            boundKey = boundKey + 32
+        end
+        if key == boundKey then
+            pcall(function()
+                carCache = {}
+                ClearCarDrawings()
+                carScanned = false
+                SafeNotify("Vehicle ESP rescanning...", "Rescan", 1)
+            end)
+        end
+    end
 end)
 
 RunService.RenderStepped:Connect(function()
@@ -1633,6 +1894,7 @@ RunService.RenderStepped:Connect(function()
     RenderItemESP()
     RenderCorpseESP()
     RenderBannerESP()
+    RenderCarESP()
 end)
 
 ResetAllToggles()
