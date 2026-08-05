@@ -795,11 +795,7 @@ local function RenderCorpseESP()
         if drawing then
             drawing.Position = corpse.Position
             drawing.Text = corpse.Text
-            if corpse.HasLoot then
-                drawing.Color = Color3.fromRGB(255, 200, 50)
-            else
-                drawing.Color = Color3.fromRGB(255, 50, 50)
-            end
+            drawing.Color = Color3.fromRGB(255, 50, 50)
             drawing.Visible = true
         end
     end
