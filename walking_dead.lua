@@ -135,6 +135,7 @@ local ITEM_TYPES = {
         "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
         "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver",
         "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
+        "Shovel",
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
@@ -158,7 +159,7 @@ local ITEM_TYPES = {
     },
     ["Misc"] = {
         "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
-        "Weapon Cleaning Kit", "Cloth",
+        "Weapon Cleaning Kit", "Cloth", "Rag", "Stick",
     },
     ["Equipment"] = {
         "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
@@ -449,10 +450,13 @@ function ScanCorpses()
                 end
                 
                 if not position then
-                    for _, part in ipairs(child:GetChildren()) do
-                        if part:IsA("MeshPart") or part:IsA("Part") or part:IsA("BasePart") then
-                            position = part.Position
-                            break
+                    for _, part in ipairs(child:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            local pos = part.Position
+                            if pos and pos.Magnitude > 0 then
+                                position = pos
+                                break
+                            end
                         end
                     end
                 end
@@ -466,11 +470,48 @@ function ScanCorpses()
                     end
                 end
                 
+                if not position then
+                    local ok, result = pcall(function()
+                        local cframe, size = child:GetBoundingBox()
+                        if cframe then
+                            return cframe.Position
+                        end
+                        return nil
+                    end)
+                    if ok and result and result.Magnitude > 0 then
+                        position = result
+                    end
+                end
+                
                 if position then
+                    local lootFolder = child:FindFirstChild("Loot_Corpse")
+                    local hasLoot = false
+                    if lootFolder then
+                        for _, item in ipairs(lootFolder:GetChildren()) do
+                            if item:IsA("Folder") then
+                                local name = item.Name
+                                for category, categoryItems in pairs(ITEM_TYPES) do
+                                    for _, itemName in ipairs(categoryItems) do
+                                        if name == itemName then
+                                            hasLoot = true
+                                            break
+                                        end
+                                    end
+                                    if hasLoot then break end
+                                end
+                            end
+                            if hasLoot then break end
+                        end
+                    end
+                    
                     table.insert(found, {
                         Name = child.Name,
                         Position = position,
+                        HasLoot = hasLoot,
+                        LootFolder = lootFolder,
                     })
+                else
+                    warn("[Corpse ESP] Could not find position for: " .. child.Name)
                 end
             end
         end
@@ -479,10 +520,27 @@ function ScanCorpses()
     
     if success and results then
         corpses = results
+    else
+        warn("[Corpse ESP] Error scanning corpses: " .. tostring(success))
     end
     
     corpseScanned = true
     return corpses
+end
+
+local function ScanCorpseLoot(corpseModel)
+    local items = {}
+    local lootFolder = corpseModel:FindFirstChild("Loot_Corpse")
+    if lootFolder then
+        for _, child in ipairs(lootFolder:GetChildren()) do
+            local name = child.Name
+            if name and name ~= "" then
+                table.insert(items, name)
+            end
+        end
+    end
+    table.sort(items)
+    return items
 end
 
 local function RenderItemESP()
@@ -694,9 +752,11 @@ local function RenderCorpseESP()
         if distance <= persistentState.corpseDistance then
             local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
             if onScreen then
+                local status = corpse.HasLoot and " [LOOT]" or ""
                 table.insert(visibleCorpses, {
-                    Text = corpse.Name .. " [" .. math.floor(distance) .. "m]",
+                    Text = corpse.Name .. status .. " [" .. math.floor(distance) .. "m]",
                     Position = screenPos,
+                    HasLoot = corpse.HasLoot,
                 })
             end
         end
@@ -735,6 +795,11 @@ local function RenderCorpseESP()
         if drawing then
             drawing.Position = corpse.Position
             drawing.Text = corpse.Text
+            if corpse.HasLoot then
+                drawing.Color = Color3.fromRGB(255, 200, 50)
+            else
+                drawing.Color = Color3.fromRGB(255, 50, 50)
+            end
             drawing.Visible = true
         end
     end
@@ -1093,12 +1158,13 @@ end
 
 local function GetTargetPlayer()
     local camera = workspace.CurrentCamera
-    if not camera then return nil end
+    if not camera then return nil, nil end
 
     local cameraPos = camera.Position
     local lookDirection = camera.CFrame.LookVector
-    local closestPlayer = nil
+    local closestTarget = nil
     local closestAngle = math.rad(7)
+    local targetType = "Player"
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr.Name == player.Name then continue end
@@ -1110,12 +1176,49 @@ local function GetTargetPlayer()
                 local angle = math.acos(math.clamp(lookDirection:Dot(toPlayer), -1, 1))
                 if angle < closestAngle then
                     closestAngle = angle
-                    closestPlayer = plr
+                    closestTarget = plr
+                    targetType = "Player"
                 end
             end
         end
     end
-    return closestPlayer
+
+    local corpseFolder = Workspace:FindFirstChild("Corpses")
+    if corpseFolder then
+        for _, corpse in ipairs(corpseFolder:GetChildren()) do
+            if corpse:IsA("Model") then
+                local pos = nil
+                local rootPart = corpse:FindFirstChild("HumanoidRootPart")
+                if rootPart and rootPart:IsA("BasePart") then
+                    pos = rootPart.Position
+                end
+                if not pos then
+                    for _, part in ipairs(corpse:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            pos = part.Position
+                            if pos and pos.Magnitude > 0 then
+                                break
+                            end
+                        end
+                    end
+                end
+                if pos then
+                    local toCorpse = (pos - cameraPos).Unit
+                    local angle = math.acos(math.clamp(lookDirection:Dot(toCorpse), -1, 1))
+                    local corpseAngle = math.rad(10)
+                    if angle < corpseAngle then
+                        if not closestTarget or angle < closestAngle then
+                            closestAngle = angle
+                            closestTarget = corpse
+                            targetType = "Corpse"
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestTarget, targetType
 end
 
 local function ScanEquippedWeapons(plr)
@@ -1178,60 +1281,128 @@ local function ScanPlayerGui(plr)
     return items
 end
 
-local function GetPlayerData(plr)
-    if not plr then return nil end
+local function GetCorpseLoot(corpse)
+    local items = {}
+    local lootFolder = corpse:FindFirstChild("Loot_Corpse")
+    if lootFolder then
+        for _, child in ipairs(lootFolder:GetChildren()) do
+            if child:IsA("Folder") then
+                local name = child.Name
+                local found = false
+                for category, categoryItems in pairs(ITEM_TYPES) do
+                    for _, itemName in ipairs(categoryItems) do
+                        if name == itemName then
+                            found = true
+                            break
+                        end
+                    end
+                    if found then break end
+                end
+                if found then
+                    table.insert(items, name)
+                end
+            end
+        end
+    end
+    table.sort(items)
+    return items
+end
 
-    local info = {
-        Name = plr.Name,
-        Backpack = {},
-        Health = 0,
-        Distance = 0,
-    }
+local function GetTargetData(target, targetType)
+    if not target then return nil end
 
-    local character = plr.Character
-    if character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then info.Health = math.floor(humanoid.Health) end
-        local head = character:FindFirstChild("Head")
-        if head then
+    if targetType == "Player" then
+        local plr = target
+        local info = {
+            Name = plr.Name,
+            Backpack = {},
+            Health = 0,
+            Distance = 0,
+            Type = "Player",
+        }
+
+        local character = plr.Character
+        if character then
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid then info.Health = math.floor(humanoid.Health) end
+            local head = character:FindFirstChild("Head")
+            if head then
+                local camera = workspace.CurrentCamera
+                if camera then
+                    info.Distance = math.floor((head.Position - camera.Position).Magnitude)
+                end
+            end
+        end
+
+        local backpackItems = ScanBackpack(plr)
+        local guiItems = ScanPlayerGui(plr)
+
+        local allItems = {}
+        for _, item in ipairs(backpackItems) do table.insert(allItems, item) end
+        for _, item in ipairs(guiItems) do
+            local found = false
+            for _, existing in ipairs(allItems) do
+                if existing == item then found = true break end
+            end
+            if not found then table.insert(allItems, item) end
+        end
+
+        local equippedWeapons = ScanEquippedWeapons(plr)
+        for _, weapon in ipairs(equippedWeapons) do
+            local found = false
+            for i, bpItem in ipairs(allItems) do
+                if bpItem == weapon then
+                    allItems[i] = weapon .. " [equipped]"
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                table.insert(allItems, weapon .. " [equipped]")
+            end
+        end
+
+        table.sort(allItems)
+        info.Backpack = allItems
+        return info
+
+    elseif targetType == "Corpse" then
+        local corpse = target
+        local info = {
+            Name = corpse.Name,
+            Backpack = {},
+            Health = 0,
+            Distance = 0,
+            Type = "Corpse",
+        }
+
+        local pos = nil
+        local rootPart = corpse:FindFirstChild("HumanoidRootPart")
+        if rootPart and rootPart:IsA("BasePart") then
+            pos = rootPart.Position
+        end
+        if not pos then
+            for _, part in ipairs(corpse:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    pos = part.Position
+                    if pos and pos.Magnitude > 0 then
+                        break
+                    end
+                end
+            end
+        end
+        if pos then
             local camera = workspace.CurrentCamera
             if camera then
-                info.Distance = math.floor((head.Position - camera.Position).Magnitude)
+                info.Distance = math.floor((pos - camera.Position).Magnitude)
             end
         end
+
+        info.Backpack = GetCorpseLoot(corpse)
+        return info
     end
 
-    local backpackItems = ScanBackpack(plr)
-    local guiItems = ScanPlayerGui(plr)
-
-    local allItems = {}
-    for _, item in ipairs(backpackItems) do table.insert(allItems, item) end
-    for _, item in ipairs(guiItems) do
-        local found = false
-        for _, existing in ipairs(allItems) do
-            if existing == item then found = true break end
-        end
-        if not found then table.insert(allItems, item) end
-    end
-
-    local equippedWeapons = ScanEquippedWeapons(plr)
-    for _, weapon in ipairs(equippedWeapons) do
-        local found = false
-        for i, bpItem in ipairs(allItems) do
-            if bpItem == weapon then
-                allItems[i] = weapon .. " [equipped]"
-                found = true
-                break
-            end
-        end
-        if not found then
-            table.insert(allItems, weapon .. " [equipped]")
-        end
-    end
-
-    table.sort(allItems)
-    info.Backpack = allItems
-    return info
+    return nil
 end
 
 local function GetContentLines(data)
@@ -1241,9 +1412,13 @@ local function GetContentLines(data)
         return lines
     end
 
+    local typeLabel = data.Type == "Corpse" and "[Corpse] " or ""
+    table.insert(lines, {text = typeLabel .. data.Name, color = Color3.fromRGB(255, 255, 255)})
     table.insert(lines, {text = "Distance: " .. data.Distance .. "m", color = Color3.fromRGB(200, 200, 200)})
 
-    table.insert(lines, {text = "backpack:", color = Color3.fromRGB(200, 200, 200)})
+    local backpackLabel = data.Type == "Corpse" and "loot:" or "backpack:"
+    table.insert(lines, {text = backpackLabel, color = Color3.fromRGB(200, 200, 200)})
+    
     if #data.Backpack > 0 then
         for _, item in ipairs(data.Backpack) do
             if string.find(item, "%[equipped%]") then
@@ -1253,7 +1428,8 @@ local function GetContentLines(data)
             end
         end
     else
-        table.insert(lines, {text = "  empty", color = Color3.fromRGB(150, 150, 150)})
+        local emptyText = data.Type == "Corpse" and "  no loot" or "  empty"
+        table.insert(lines, {text = emptyText, color = Color3.fromRGB(150, 150, 150)})
     end
     return lines
 end
@@ -1274,13 +1450,15 @@ local function RenderPanel()
     if not viewport then return end
 
     local viewportSize = viewport.ViewportSize
-    local currentTarget = GetTargetPlayer()
+    local currentTarget, targetType = GetTargetPlayer()
 
+    local targetChanged = false
     if currentTarget ~= cachedPlayer then
+        targetChanged = true
         cachedPlayer = currentTarget
-        cachedData = currentTarget and GetPlayerData(currentTarget) or nil
+        cachedData = currentTarget and GetTargetData(currentTarget, targetType) or nil
     elseif currentTarget and cachedData then
-        local freshData = GetPlayerData(currentTarget)
+        local freshData = GetTargetData(currentTarget, targetType)
         if freshData then
             local changed = false
             if #freshData.Backpack ~= #cachedData.Backpack then
@@ -1368,7 +1546,7 @@ local function RenderPanel()
         title.Outline = false
         title.Center = false
         title.Position = Vector2.new(panelX + padding, panelY + math.floor(8 * scale))
-        title.Text = "BACKPACK INSPECTOR"
+        title.Text = "TARGET INSPECTOR"
         title.ZIndex = 1001
         title.Visible = true
         table.insert(panelDrawings, title)
@@ -1751,7 +1929,7 @@ UI.AddTab("Walking Dead", function(tab)
     
     MainSection:Spacing()
     MainSection:Spacing()
-    
+
     MainSection:Toggle("car_esp_toggle", "Enable Vehicle ESP", function(state)
         persistentState.carEspEnabled = state
         if state then
@@ -1776,13 +1954,13 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Spacing()
     MainSection:Spacing()
     
-    MainSection:Toggle("inspector_toggle", "Enable Backpack Inspector", function(state)
+    MainSection:Toggle("inspector_toggle", "Enable Target Inspector", function(state)
         persistentState.inspectorEnabled = state
         if state then
-            SafeNotify("Backpack Inspector enabled", nil, 2)
+            SafeNotify("Target Inspector enabled", nil, 2)
         else
             ClearPanel()
-            SafeNotify("Backpack Inspector disabled", nil, 2)
+            SafeNotify("Target Inspector disabled", nil, 2)
         end
     end)
     
