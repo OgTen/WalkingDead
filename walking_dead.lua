@@ -23,7 +23,6 @@ end
 local persistentState = {
     inspectorEnabled = false,
     uiScale = 1.0,
-    modPanelScale = 1.0,
     itemEspEnabled = false,
     itemDistance = 150,
     itemToggles = {},
@@ -40,7 +39,6 @@ local persistentState = {
     bannerDistance = 500,
     carEspEnabled = false,
     carDistance = 500,
-    modDetectorEnabled = false,
 }
 
 local emptyScanTracker = {}
@@ -48,9 +46,6 @@ local emptyScanTracker = {}
 local bannerRenderCounter = 0
 local corpseRenderCounter = 0
 local carRenderCounter = 0
-local frameCounter = 0
-local panelFrameCounter = 0
-local PANEL_UPDATE_EVERY_N_FRAMES = 3
 
 local POI_LOCATIONS = {
     ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
@@ -83,471 +78,6 @@ local itemRescanKeybind = nil
 local bannerRescanKeybind = nil
 local corpseRescanKeybind = nil
 local carRescanKeybind = nil
-
-local MOD_LIST_WITH_ROLES = {
-    {name = "KiidRagnos", role = "Moderator"},
-    {name = "Supply_Runner", role = "Moderator"},
-    {name = "bikerr_r", role = "Moderator"},
-    {name = "jasper155555", role = "Moderator"},
-    {name = "FadeXtoXmyst", role = "Moderator"},
-    {name = "Skaflora", role = "Moderator"},
-    {name = "HaticeOyunG", role = "Moderator"},
-    {name = "Etwanrosa2point0", role = "Moderator"},
-    {name = "therealskylad3144", role = "Moderator"},
-    {name = "Placvid", role = "Moderator"},
-    {name = "Domtwdg", role = "Moderator"},
-    {name = "cwiinder", role = "Moderator"},
-    {name = "ReiIsReallyShy", role = "Moderator"},
-    {name = "mqriahs", role = "Moderator"},
-    {name = "CallMeNucu", role = "Moderator"},
-    {name = "sephriothgatsuga", role = "Moderator"},
-    {name = "TheNotLeq", role = "Moderator"},
-    {name = "Forest_Gump04", role = "Moderator"},
-    {name = "D4rl1ngGh0ul", role = "Moderator"},
-    {name = "VarsityRebel", role = "Moderator"},
-    {name = "g1rlwhat666", role = "Moderator"},
-    {name = "hachimansolos", role = "Moderator"},
-    {name = "chris_03001", role = "Moderator"},
-    {name = "IrelventNox", role = "Moderator"},
-    {name = "DougAbilities", role = "Moderator"},
-    {name = "rewqq0123", role = "Moderator"},
-    {name = "XxGlobeX_LeaderxX", role = "Moderator"},
-    {name = "aero_luvv", role = "Moderator"},
-    {name = "Icon_power0", role = "Moderator"},
-    {name = "kruiined", role = "Developer"},
-    {name = "RickDGrimesSr", role = "Developer"},
-    {name = "LANOLMVURMASANA", role = "Developer"},
-    {name = "Mythfuly", role = "Developer"},
-    {name = "GRLLTEBU", role = "Developer"},
-}
-
-local notifiedMods = {}
-local panelObjects = {}
-local panelCache = {}
-local panelUpdateTime = 0
-local PANEL_INTERVAL = 5
-local panelVisible = false
-local lastModListHash = ""
-local modPanelRenderCounter = 0
-local MOD_PANEL_UPDATE_INTERVAL = 2
-local noModsShown = false
-local lastModListHash = ""
-local cachedTargetHash = ""
-local lastTargetCheck = 0
-local TARGET_CHECK_INTERVAL = 0.5
-local cachedTargetData = nil
-local cachedTargetName = ""
-local cachedTargetType = ""
-local targetDataCacheTime = 0
-local TARGET_DATA_CACHE_INTERVAL = 1.0
-
-local function TruncateText(text, maxLen)
-    if not text then return "" end
-    if #text <= maxLen then return text end
-    return string.sub(text, 1, maxLen - 3) .. "..."
-end
-
-local function BuildPanel()
-    for _, obj in ipairs(panelObjects) do
-        pcall(obj.Remove, obj)
-    end
-    panelObjects = {}
-    
-    local scale = persistentState.modPanelScale or 1.0
-    local padding = math.floor(14 * scale)
-    local lineHeight = math.floor(22 * scale)
-    local titleHeight = math.floor(36 * scale)
-    local panelWidth = math.floor(340 * scale)
-    
-    local bg = Drawing.new("Square")
-    bg.Filled = true
-    bg.Color = Color3.fromRGB(20, 20, 25)
-    bg.Transparency = 0.85
-    bg.ZIndex = 996
-    bg.Corner = math.floor(8 * scale)
-    bg.Visible = false
-    table.insert(panelObjects, bg)
-    
-    local outline = Drawing.new("Square")
-    outline.Filled = false
-    outline.Color = Color3.fromRGB(255, 200, 50)
-    outline.Thickness = 2
-    outline.ZIndex = 997
-    outline.Corner = math.floor(8 * scale)
-    outline.Visible = false
-    table.insert(panelObjects, outline)
-    
-    local titleBg = Drawing.new("Square")
-    titleBg.Filled = true
-    titleBg.Color = Color3.fromRGB(45, 45, 55)
-    titleBg.Transparency = 0
-    titleBg.ZIndex = 998
-    titleBg.Corner = math.floor(8 * scale)
-    titleBg.Visible = false
-    table.insert(panelObjects, titleBg)
-    
-    local title = Drawing.new("Text")
-    title.Font = Drawing.Fonts.System
-    title.Size = math.floor(16 * scale)
-    title.Color = Color3.fromRGB(255, 200, 50)
-    title.Outline = true
-    title.Center = false
-    title.ZIndex = 999
-    title.Visible = false
-    table.insert(panelObjects, title)
-    
-    local divider = Drawing.new("Line")
-    divider.Color = Color3.fromRGB(80, 80, 100)
-    divider.Thickness = 1
-    divider.ZIndex = 998
-    divider.Visible = false
-    table.insert(panelObjects, divider)
-    
-    for i = 1, 25 do
-        local nameText = Drawing.new("Text")
-        nameText.Font = Drawing.Fonts.System
-        nameText.Size = math.floor(13 * scale)
-        nameText.Color = Color3.fromRGB(255, 255, 255)
-        nameText.Outline = true
-        nameText.Center = false
-        nameText.ZIndex = 1000
-        nameText.Visible = false
-        table.insert(panelObjects, nameText)
-        
-        local roleText = Drawing.new("Text")
-        roleText.Font = Drawing.Fonts.System
-        roleText.Size = math.floor(12 * scale)
-        roleText.Outline = true
-        roleText.Center = false
-        roleText.ZIndex = 1000
-        roleText.Visible = false
-        table.insert(panelObjects, roleText)
-    end
-    
-    panelObjects.bg = bg
-    panelObjects.outline = outline
-    panelObjects.titleBg = titleBg
-    panelObjects.title = title
-    panelObjects.divider = divider
-    panelObjects.padding = padding
-    panelObjects.lineHeight = lineHeight
-    panelObjects.titleHeight = titleHeight
-    panelObjects.panelWidth = panelWidth
-    panelObjects.scale = scale
-    panelObjects.textStartIndex = 6
-    
-    panelVisible = false
-end
-
-local function UpdatePanel()
-    if not persistentState.modDetectorEnabled then
-        for _, obj in ipairs(panelObjects) do
-            if obj then obj.Visible = false end
-        end
-        panelVisible = false
-        return
-    end
-    
-    if #panelObjects == 0 then
-        BuildPanel()
-    end
-    
-    if #panelObjects == 0 or not panelObjects.bg then
-        return
-    end
-    
-    local found = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        for _, modData in ipairs(MOD_LIST_WITH_ROLES) do
-            if plr.Name == modData.name then
-                table.insert(found, {name = plr.Name, role = modData.role})
-                break
-            end
-        end
-    end
-    
-    local currentHash = ""
-    for i = 1, #found do
-        currentHash = currentHash .. found[i].name .. "|" .. found[i].role .. ","
-    end
-    
-    if currentHash == lastModListHash and panelVisible then
-        return
-    end
-    
-    lastModListHash = currentHash
-    panelCache = found
-    
-    local camera = workspace.CurrentCamera
-    if not camera then return end
-    
-    local viewportSize = camera.ViewportSize
-    local scale = panelObjects.scale or 1.0
-    local padding = panelObjects.padding or 14
-    local lineHeight = panelObjects.lineHeight or 22
-    local titleHeight = panelObjects.titleHeight or 36
-    local panelWidth = panelObjects.panelWidth or 340
-    local textStartIndex = panelObjects.textStartIndex or 6
-    
-    local count = #panelCache
-    local maxDisplay = math.min(count, 25)
-    local displayCount = math.max(maxDisplay, 1)
-    local extraPadding = lineHeight * 0.8
-    local contentHeight = titleHeight + (displayCount * lineHeight) + padding + extraPadding
-    local panelX = viewportSize.X - panelWidth - math.floor(20 * scale)
-    local panelY = math.floor(20 * scale)
-    
-    local bg = panelObjects.bg
-    if bg then
-        bg.Size = Vector2.new(panelWidth, contentHeight)
-        bg.Position = Vector2.new(panelX, panelY)
-        bg.Visible = true
-    end
-    
-    local outline = panelObjects.outline
-    if outline then
-        outline.Size = Vector2.new(panelWidth, contentHeight)
-        outline.Position = Vector2.new(panelX, panelY)
-        outline.Visible = true
-    end
-    
-    local titleBg = panelObjects.titleBg
-    if titleBg then
-        titleBg.Size = Vector2.new(panelWidth, titleHeight)
-        titleBg.Position = Vector2.new(panelX, panelY)
-        titleBg.Visible = true
-    end
-    
-    local title = panelObjects.title
-    if title then
-        title.Position = Vector2.new(panelX + padding, panelY + (titleHeight / 2) - (title.Size / 2))
-        title.Text = "Mod Inspector"
-        title.Visible = true
-    end
-    
-    local divider = panelObjects.divider
-    local dividerY = panelY + titleHeight + math.floor(extraPadding * 0.3)
-    if divider then
-        divider.From = Vector2.new(panelX + 5, dividerY)
-        divider.To = Vector2.new(panelX + panelWidth - 5, dividerY)
-        divider.Visible = true
-    end
-    
-    local nameMaxLen = math.floor((panelWidth - padding - 80 * scale - padding) / (7 * scale))
-    if nameMaxLen < 5 then nameMaxLen = 5 end
-    local yOffset = dividerY + math.floor(extraPadding * 0.7)
-    
-    if count == 0 then
-        for i = textStartIndex, #panelObjects do
-            if panelObjects[i] then
-                if i == textStartIndex then
-                    panelObjects[i].Position = Vector2.new(panelX + padding, yOffset)
-                    panelObjects[i].Text = "No mods found"
-                    panelObjects[i].Color = Color3.fromRGB(150, 150, 150)
-                    panelObjects[i].Visible = true
-                elseif i == textStartIndex + 1 then
-                    panelObjects[i].Visible = false
-                else
-                    panelObjects[i].Visible = false
-                end
-            end
-        end
-    else
-        for i = 1, maxDisplay do
-            local nameIndex = textStartIndex + ((i - 1) * 2)
-            local roleIndex = textStartIndex + ((i - 1) * 2) + 1
-            
-            if nameIndex > #panelObjects or roleIndex > #panelObjects then break end
-            
-            local nameObj = panelObjects[nameIndex]
-            local roleObj = panelObjects[roleIndex]
-            local mod = panelCache[i]
-            
-            if nameObj and roleObj and mod then
-                local displayName = TruncateText(mod.name, nameMaxLen)
-                
-                nameObj.Position = Vector2.new(panelX + padding, yOffset)
-                nameObj.Text = displayName
-                nameObj.Color = Color3.fromRGB(255, 255, 255)
-                nameObj.Visible = true
-                
-                local roleColor = Color3.fromRGB(255, 200, 50)
-                local roleLower = string.lower(mod.role)
-                if roleLower:find("owner") then roleColor = Color3.fromRGB(255, 50, 50)
-                elseif roleLower:find("developer") then roleColor = Color3.fromRGB(100, 200, 255)
-                elseif roleLower:find("admin") then roleColor = Color3.fromRGB(255, 100, 100) end
-                
-                roleObj.Position = Vector2.new(panelX + panelWidth - padding - (string.len(mod.role) * 7 * scale), yOffset)
-                roleObj.Text = mod.role
-                roleObj.Color = roleColor
-                roleObj.Visible = true
-                
-                yOffset = yOffset + lineHeight
-            end
-        end
-        
-        for i = maxDisplay + 1, 25 do
-            local nameIndex = textStartIndex + ((i - 1) * 2)
-            local roleIndex = textStartIndex + ((i - 1) * 2) + 1
-            if nameIndex <= #panelObjects and panelObjects[nameIndex] then
-                panelObjects[nameIndex].Visible = false
-            end
-            if roleIndex <= #panelObjects and panelObjects[roleIndex] then
-                panelObjects[roleIndex].Visible = false
-            end
-        end
-    end
-    
-    panelVisible = true
-end
-
-local function ClearModPanel()
-    for _, obj in ipairs(panelObjects) do
-        if obj then
-            obj.Visible = false
-        end
-    end
-    panelVisible = false
-end
-
-local modPanelRenderCounter = 0
-local MOD_PANEL_UPDATE_INTERVAL = 2
-
-local function RenderModPanel()
-    if not persistentState.modDetectorEnabled then
-        if panelVisible then
-            for _, obj in ipairs(panelObjects) do
-                if obj then obj.Visible = false end
-            end
-            panelVisible = false
-        end
-        return
-    end
-    
-    if panelVisible then
-        return
-    end
-    
-    modPanelRenderCounter = modPanelRenderCounter + 1
-    if modPanelRenderCounter < MOD_PANEL_UPDATE_INTERVAL then
-        return
-    end
-    modPanelRenderCounter = 0
-    
-    local now = tick()
-    if now - panelUpdateTime < 0.1 then
-        return
-    end
-    
-    panelUpdateTime = now
-    UpdatePanel()
-end
-
-local function ForcePanelShow()
-    panelUpdateTime = 0
-    lastModListHash = ""
-    if #panelObjects == 0 then
-        BuildPanel()
-    end
-    UpdatePanel()
-end
-
-local function DestroyModPanel()
-    for _, obj in ipairs(panelObjects) do
-        pcall(obj.Remove, obj)
-    end
-    panelObjects = {}
-    panelVisible = false
-    lastModListHash = ""
-end
-
-local function ModNotify(message, title, duration)
-    duration = duration or 5
-    title = title or "Mod Inspector"
-    local ok = pcall(notify, message, title, duration)
-    if not ok then
-        pcall(SafeNotify, message, title, duration)
-    end
-end
-
-local function CheckExistingMods()
-    local found = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        for _, modData in ipairs(MOD_LIST_WITH_ROLES) do
-            if plr.Name == modData.name then
-                table.insert(found, plr.Name)
-                notifiedMods[plr.Name] = true
-                break
-            end
-        end
-    end
-    
-    if #found > 0 then
-        ModNotify("Found " .. #found .. " mod(s) in this server", "Mod Inspector", 3)
-        for _, name in ipairs(found) do
-            ModNotify(name .. " is a mod", "Mod Inspector", 5)
-        end
-    else
-        ModNotify("No mods found in this server", "Mod Inspector", 2)
-    end
-end
-
-local modMonitorTask = nil
-
-local function StartModMonitor()
-    if modMonitorTask then return end
-    
-    modMonitorTask = task.spawn(function()
-        ForcePanelShow()
-        
-        CheckExistingMods()
-        
-        while persistentState.modDetectorEnabled do
-            task.wait(5)
-            
-            local currentMods = {}
-            for _, plr in ipairs(Players:GetPlayers()) do
-                for _, modData in ipairs(MOD_LIST_WITH_ROLES) do
-                    if plr.Name == modData.name then
-                        currentMods[plr.Name] = true
-                        break
-                    end
-                end
-            end
-            
-            local modsLeft = false
-            for name in pairs(notifiedMods) do
-                if not currentMods[name] then
-                    ModNotify(name .. " left the game", "Mod Inspector", 3)
-                    notifiedMods[name] = nil
-                    modsLeft = true
-                end
-            end
-            
-            local foundNew = false
-            for name in pairs(currentMods) do
-                if not notifiedMods[name] then
-                    ModNotify(name .. " is a mod", "Mod Inspector", 5)
-                    notifiedMods[name] = true
-                    foundNew = true
-                end
-            end
-            
-            if foundNew or modsLeft then
-                lastModListHash = ""
-                DestroyModPanel()
-                BuildPanel()
-                ForcePanelShow()
-            end
-        end
-        
-        modMonitorTask = nil
-    end)
-end
-
-local function ClearModListDrawings()
-    ClearModPanel()
-end
 
 local function EnsureCharacter()
     if not character or not character.Parent then
@@ -746,7 +276,7 @@ end
 local itemDrawings = {}
 local itemCache = {}
 local itemFrameCounter = 0
-local ITEM_UPDATE_EVERY_N_FRAMES = 1
+local ITEM_UPDATE_EVERY_N_FRAMES = 2
 
 local function ClearItemDrawings()
     for _, drawing in ipairs(itemDrawings) do
@@ -1065,6 +595,15 @@ local function RenderItemESP()
         end
     end
 
+    itemFrameCounter = itemFrameCounter + 1
+    if itemFrameCounter > ITEM_UPDATE_EVERY_N_FRAMES then
+        itemFrameCounter = 0
+    end
+
+    if itemFrameCounter ~= 0 then
+        return
+    end
+
     local groupedItems = {}
     local round = function(num)
         return math.floor(num * 100 + 0.5) / 100
@@ -1160,7 +699,7 @@ end
 local corpseDrawings = {}
 local corpseCache = {}
 local corpseFrameCounter = 0
-local CORPSE_UPDATE_EVERY_N_FRAMES = 1
+local CORPSE_UPDATE_EVERY_N_FRAMES = 3
 local corpseScanned = false
 
 local function ClearCorpseDrawings()
@@ -1271,7 +810,7 @@ end
 local bannerDrawings = {}
 local bannerCache = {}
 local bannerFrameCounter = 0
-local BANNER_UPDATE_EVERY_N_FRAMES = 1
+local BANNER_UPDATE_EVERY_N_FRAMES = 3
 local bannerScanned = false
 
 local function ClearBannerDrawings()
@@ -1309,6 +848,14 @@ local function RenderBannerESP()
     persistentState.bannerDistance = UI.GetValue("banner_distance") or 500
     local cameraPos = camera.Position
 
+    bannerFrameCounter = bannerFrameCounter + 1
+    if bannerFrameCounter > BANNER_UPDATE_EVERY_N_FRAMES then
+        bannerFrameCounter = 0
+    end
+
+    if bannerFrameCounter ~= 0 then
+        return
+    end
 
     local visibleBanners = {}
     for _, banner in ipairs(bannerCache) do
@@ -1377,7 +924,7 @@ end
 local carDrawings = {}
 local carCache = {}
 local carFrameCounter = 0
-local CAR_UPDATE_EVERY_N_FRAMES = 1
+local CAR_UPDATE_EVERY_N_FRAMES = 3
 local carScanned = false
 local Cars = Workspace:FindFirstChild("Cars")
 
@@ -1476,6 +1023,14 @@ local function RenderCarESP()
     persistentState.carDistance = UI.GetValue("car_distance") or 500
     local cameraPos = camera.Position
 
+    carFrameCounter = carFrameCounter + 1
+    if carFrameCounter > CAR_UPDATE_EVERY_N_FRAMES then
+        carFrameCounter = 0
+    end
+
+    if carFrameCounter ~= 0 then
+        return
+    end
 
     local visibleCars = {}
     for i, car in ipairs(carCache) do
@@ -1563,13 +1118,7 @@ local cachedData = nil
 local lastRenderTime = 0
 local MIN_SCALE = 0.8
 local MAX_SCALE = 2.5
-local UI_UPDATE_INTERVAL = 0.3
-
-local currentTarget = nil
-local currentTargetType = nil
-local targetDirty = true
-local lastScanTime = 0
-local SCAN_INTERVAL = 0.1
+local UI_UPDATE_INTERVAL = 0.5
 
 local function IsReadableString(str)
     if not str or str == "" then return false end
@@ -1603,29 +1152,23 @@ local function ClearPanel()
     panelDrawings = {}
 end
 
-local function DestroyPanel()
-    for _, drawing in ipairs(panelDrawings) do
-        pcall(drawing.Remove, drawing)
-    end
-    panelDrawings = {}
-end
-
-local function QuickTargetCheck()
+local function GetTargetPlayer()
     local camera = workspace.CurrentCamera
     if not camera then return nil, nil end
 
     local cameraPos = camera.Position
     local lookDirection = camera.CFrame.LookVector
     local closestTarget = nil
-    local closestAngle = math.rad(2)
+    local closestAngle = math.rad(7)
     local targetType = "Player"
 
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == player then continue end
+        if plr.Name == player.Name then continue end
         if plr.Character and plr.Character.Parent then
             local head = plr.Character:FindFirstChild("Head")
             if head then
-                local toPlayer = (head.Position - cameraPos).Unit
+                local headPos = head.Position
+                local toPlayer = (headPos - cameraPos).Unit
                 local angle = math.acos(math.clamp(lookDirection:Dot(toPlayer), -1, 1))
                 if angle < closestAngle then
                     closestAngle = angle
@@ -1636,34 +1179,34 @@ local function QuickTargetCheck()
         end
     end
 
-    if not closestTarget then
-        local corpseFolder = Workspace:FindFirstChild("Corpses")
-        if corpseFolder then
-            local corpseAngle = math.rad(12)
-            for _, corpse in ipairs(corpseFolder:GetChildren()) do
-                if corpse:IsA("Model") then
-                    local pos = nil
-                    local rootPart = corpse:FindFirstChild("HumanoidRootPart")
-                    if rootPart and rootPart:IsA("BasePart") then
-                        pos = rootPart.Position
-                    end
-                    if not pos then
-                        for _, part in ipairs(corpse:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                pos = part.Position
-                                if pos and pos.Magnitude > 0 then break end
+    local corpseFolder = Workspace:FindFirstChild("Corpses")
+    if corpseFolder then
+        for _, corpse in ipairs(corpseFolder:GetChildren()) do
+            if corpse:IsA("Model") then
+                local pos = nil
+                local rootPart = corpse:FindFirstChild("HumanoidRootPart")
+                if rootPart and rootPart:IsA("BasePart") then
+                    pos = rootPart.Position
+                end
+                if not pos then
+                    for _, part in ipairs(corpse:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            pos = part.Position
+                            if pos and pos.Magnitude > 0 then
+                                break
                             end
                         end
                     end
-                    if pos then
-                        local toCorpse = (pos - cameraPos).Unit
-                        local angle = math.acos(math.clamp(lookDirection:Dot(toCorpse), -1, 1))
-                        if angle < corpseAngle then
-                            if not closestTarget or angle < closestAngle then
-                                closestAngle = angle
-                                closestTarget = corpse
-                                targetType = "Corpse"
-                            end
+                end
+                if pos then
+                    local toCorpse = (pos - cameraPos).Unit
+                    local angle = math.acos(math.clamp(lookDirection:Dot(toCorpse), -1, 1))
+                    local corpseAngle = math.rad(10)
+                    if angle < corpseAngle then
+                        if not closestTarget or angle < closestAngle then
+                            closestAngle = angle
+                            closestTarget = corpse
+                            targetType = "Corpse"
                         end
                     end
                 end
@@ -1674,7 +1217,94 @@ local function QuickTargetCheck()
     return closestTarget, targetType
 end
 
-local function FullTargetScan(target, targetType)
+local function ScanEquippedWeapons(plr)
+    local items = {}
+    local character = plr.Character
+    if character then
+        for _, child in ipairs(character:GetChildren()) do
+            local name = child.Name
+            if IsJunk(name) then continue end
+            if not IsReadableString(name) then continue end
+            if child:IsA("Tool") and child:FindFirstChild("Handle") and child.Handle:IsA("MeshPart") then
+                table.insert(items, name)
+            end
+        end
+    end
+    return items
+end
+
+local function ScanBackpack(plr)
+    local items = {}
+    local backpack = plr:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            local name = item.Name
+            if IsReadableString(name) and not IsJunk(name) then
+                table.insert(items, name)
+            end
+        end
+    end
+    table.sort(items)
+    return items
+end
+
+local function ScanPlayerGui(plr)
+    local items = {}
+    local playerGui = plr:FindFirstChild("PlayerGui")
+    if playerGui then
+        local userGui = playerGui:FindFirstChild("UserGUI")
+        if userGui then
+            local frame = userGui:FindFirstChild("Frame")
+            if frame then
+                local invFrame = frame:FindFirstChild("InvFrame")
+                if invFrame then
+                    local inventory = invFrame:FindFirstChild("Inventory")
+                    if inventory then
+                        local itemGrid = inventory:FindFirstChild("ItemGrid")
+                        if itemGrid then
+                            for _, child in ipairs(itemGrid:GetChildren()) do
+                                local name = child.Name
+                                if IsReadableString(name) and not IsJunk(name) then
+                                    table.insert(items, name)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return items
+end
+
+local function GetCorpseLoot(corpse)
+    local items = {}
+    local lootFolder = corpse:FindFirstChild("Loot_Corpse")
+    if lootFolder then
+        for _, child in ipairs(lootFolder:GetChildren()) do
+            if child:IsA("Folder") then
+                local name = child.Name
+                local found = false
+                for category, categoryItems in pairs(ITEM_TYPES) do
+                    for _, itemName in ipairs(categoryItems) do
+                        if name == itemName then
+                            found = true
+                            break
+                        end
+                    end
+                    if found then break end
+                end
+                if found then
+                    table.insert(items, name)
+                end
+            end
+        end
+    end
+    table.sort(items)
+    return items
+end
+
+local function GetTargetData(target, targetType)
     if not target then return nil end
 
     if targetType == "Player" then
@@ -1700,61 +1330,31 @@ local function FullTargetScan(target, targetType)
             end
         end
 
-        local backpack = plr:FindFirstChild("Backpack")
+        local backpackItems = ScanBackpack(plr)
+        local guiItems = ScanPlayerGui(plr)
+
         local allItems = {}
-        if backpack then
-            for _, item in ipairs(backpack:GetChildren()) do
-                local name = item.Name
-                if IsReadableString(name) and not IsJunk(name) then
-                    table.insert(allItems, name)
-                end
+        for _, item in ipairs(backpackItems) do table.insert(allItems, item) end
+        for _, item in ipairs(guiItems) do
+            local found = false
+            for _, existing in ipairs(allItems) do
+                if existing == item then found = true break end
             end
+            if not found then table.insert(allItems, item) end
         end
 
-        local playerGui = plr:FindFirstChild("PlayerGui")
-        if playerGui then
-            local userGui = playerGui:FindFirstChild("UserGUI")
-            if userGui then
-                local frame = userGui:FindFirstChild("Frame")
-                if frame then
-                    local invFrame = frame:FindFirstChild("InvFrame")
-                    if invFrame then
-                        local inventory = invFrame:FindFirstChild("Inventory")
-                        if inventory then
-                            local itemGrid = inventory:FindFirstChild("ItemGrid")
-                            if itemGrid then
-                                for _, child in ipairs(itemGrid:GetChildren()) do
-                                    local name = child.Name
-                                    if IsReadableString(name) and not IsJunk(name) then
-                                        table.insert(allItems, name)
-                                    end
-                                end
-                            end
-                        end
-                    end
+        local equippedWeapons = ScanEquippedWeapons(plr)
+        for _, weapon in ipairs(equippedWeapons) do
+            local found = false
+            for i, bpItem in ipairs(allItems) do
+                if bpItem == weapon then
+                    allItems[i] = weapon .. " [equipped]"
+                    found = true
+                    break
                 end
             end
-        end
-
-        local character = plr.Character
-        if character then
-            for _, child in ipairs(character:GetChildren()) do
-                local name = child.Name
-                if IsJunk(name) then continue end
-                if not IsReadableString(name) then continue end
-                if child:IsA("Tool") and child:FindFirstChild("Handle") and child.Handle:IsA("MeshPart") then
-                    local found = false
-                    for i, bpItem in ipairs(allItems) do
-                        if bpItem == name then
-                            allItems[i] = name .. " [equipped]"
-                            found = true
-                            break
-                        end
-                    end
-                    if not found then
-                        table.insert(allItems, name .. " [equipped]")
-                    end
-                end
+            if not found then
+                table.insert(allItems, weapon .. " [equipped]")
             end
         end
 
@@ -1781,7 +1381,9 @@ local function FullTargetScan(target, targetType)
             for _, part in ipairs(corpse:GetDescendants()) do
                 if part:IsA("BasePart") then
                     pos = part.Position
-                    if pos and pos.Magnitude > 0 then break end
+                    if pos and pos.Magnitude > 0 then
+                        break
+                    end
                 end
             end
         end
@@ -1792,23 +1394,7 @@ local function FullTargetScan(target, targetType)
             end
         end
 
-        local lootFolder = corpse:FindFirstChild("Loot_Corpse")
-        if lootFolder then
-            for _, child in ipairs(lootFolder:GetChildren()) do
-                if child:IsA("Folder") then
-                    local name = child.Name
-                    for category, categoryItems in pairs(ITEM_TYPES) do
-                        for _, itemName in ipairs(categoryItems) do
-                            if name == itemName then
-                                table.insert(info.Backpack, name)
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        table.sort(info.Backpack)
+        info.Backpack = GetCorpseLoot(corpse)
         return info
     end
 
@@ -1858,46 +1444,31 @@ local function RenderPanel()
 
     local viewport = workspace.CurrentCamera
     if not viewport then return end
-    local viewportSize = viewport.ViewportSize
 
-    if targetDirty or now - lastScanTime > 0.3 then
-        targetDirty = false
-        lastScanTime = now
-        
-        local quickTarget, quickType = QuickTargetCheck()
-        
-        if quickTarget then
-            if quickTarget ~= cachedPlayer then
-                cachedPlayer = quickTarget
-                cachedData = FullTargetScan(quickTarget, quickType)
-                ClearPanel()
-            elseif cachedData then
-                if now - (cachedData._lastUpdate or 0) > 2 then
-                    local freshData = FullTargetScan(quickTarget, quickType)
-                    if freshData then
-                        freshData._lastUpdate = now
-                        local changed = false
-                        if #freshData.Backpack ~= #cachedData.Backpack then
-                            changed = true
-                        else
-                            for i, item in ipairs(freshData.Backpack) do
-                                if cachedData.Backpack[i] ~= item then
-                                    changed = true
-                                    break
-                                end
-                            end
-                        end
-                        if changed then
-                            cachedData = freshData
-                            ClearPanel()
-                        end
+    local viewportSize = viewport.ViewportSize
+    local currentTarget, targetType = GetTargetPlayer()
+
+    local targetChanged = false
+    if currentTarget ~= cachedPlayer then
+        targetChanged = true
+        cachedPlayer = currentTarget
+        cachedData = currentTarget and GetTargetData(currentTarget, targetType) or nil
+    elseif currentTarget and cachedData then
+        local freshData = GetTargetData(currentTarget, targetType)
+        if freshData then
+            local changed = false
+            if #freshData.Backpack ~= #cachedData.Backpack then
+                changed = true
+            else
+                for i, item in ipairs(freshData.Backpack) do
+                    if cachedData.Backpack[i] ~= item then
+                        changed = true
+                        break
                     end
                 end
             end
-        else
-            if cachedPlayer then
-                cachedPlayer = nil
-                cachedData = nil
+            if changed then
+                cachedData = freshData
                 ClearPanel()
             end
         end
@@ -1968,10 +1539,10 @@ local function RenderPanel()
         title.Font = Drawing.Fonts.System
         title.Size = titleSize
         title.Color = Color3.fromRGB(255, 255, 255)
-        title.Outline = true
+        title.Outline = false
         title.Center = false
         title.Position = Vector2.new(panelX + padding, panelY + math.floor(8 * scale))
-        title.Text = "Target Inspector"
+        title.Text = "TARGET INSPECTOR"
         title.ZIndex = 1001
         title.Visible = true
         table.insert(panelDrawings, title)
@@ -2027,15 +1598,6 @@ local function RenderPanel()
     end
 end
 
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        if persistentState.inspectorEnabled then
-            targetDirty = true
-            lastRenderTime = 0
-        end
-    end
-end)
-
 local function ResetAllToggles()
     for category, items in pairs(ITEM_TYPES) do
         persistentState.categoryToggles[category] = false
@@ -2045,34 +1607,26 @@ local function ResetAllToggles()
     end
 
     persistentState.inspectorEnabled = false
-    persistentState.uiScale = 1.0
-    persistentState.modPanelScale = 1.0
     persistentState.itemEspEnabled = false
     persistentState.corpseEspEnabled = false
     persistentState.teleportEnabled = false
     persistentState.selectedPOI = 0
     persistentState.bannerEspEnabled = false
     persistentState.carEspEnabled = false
-    persistentState.modDetectorEnabled = false
 
     ClearItemDrawings()
     ClearPanel()
     ClearCorpseDrawings()
     ClearBannerDrawings()
     ClearCarDrawings()
-    ClearModPanel()
     itemCache = {}
     corpseCache = {}
     bannerCache = {}
     carCache = {}
-    notifiedMods = {}
-    panelCache = {}
 end
 
 local function SetAllUITogglesFalse()
     UI.SetValue("inspector_toggle", false)
-    UI.SetValue("ui_scale", 1.0)
-    UI.SetValue("mod_panel_scale", 1.0)
     UI.SetValue("item_esp_toggle", false)
     UI.SetValue("corpse_esp_toggle", false)
     UI.SetValue("corpse_distance", 1000)
@@ -2082,7 +1636,6 @@ local function SetAllUITogglesFalse()
     UI.SetValue("banner_distance", 500)
     UI.SetValue("car_esp_toggle", false)
     UI.SetValue("car_distance", 500)
-    UI.SetValue("mod_detector_toggle", false)
     
     UI.SetValue("item_category_Equipment", false)
     UI.SetValue("item_category_Weapons", false)
@@ -2104,7 +1657,6 @@ local toggleRefs = {}
 local function RestoreUIState()
     UI.SetValue("inspector_toggle", persistentState.inspectorEnabled or false)
     UI.SetValue("ui_scale", persistentState.uiScale or 1.0)
-    UI.SetValue("mod_panel_scale", persistentState.modPanelScale or 1.0)
     UI.SetValue("item_esp_toggle", persistentState.itemEspEnabled or false)
     UI.SetValue("item_distance", persistentState.itemDistance or 150)
     UI.SetValue("corpse_esp_toggle", persistentState.corpseEspEnabled or false)
@@ -2115,7 +1667,6 @@ local function RestoreUIState()
     UI.SetValue("banner_distance", persistentState.bannerDistance or 500)
     UI.SetValue("car_esp_toggle", persistentState.carEspEnabled or false)
     UI.SetValue("car_distance", persistentState.carDistance or 500)
-    UI.SetValue("mod_detector_toggle", persistentState.modDetectorEnabled or false)
     
     UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
@@ -2129,10 +1680,6 @@ local function RestoreUIState()
         if toggleRefs[name] then
             toggleRefs[name].Value = enabled
         end
-    end
-
-    if persistentState.modDetectorEnabled then
-        StartModMonitor()
     end
 
     for category, enabled in pairs(persistentState.categoryToggles) do
@@ -2399,62 +1946,23 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:SliderInt("car_distance", "Vehicle Distance", 10, 3000, 500, function(value)
         persistentState.carDistance = value
     end)
-
-    local InspectorSection = tab:Section("Inspectors", "Right")
     
-    InspectorSection:Toggle("inspector_toggle", "Enable Target Inspector", function(state)
+    MainSection:Spacing()
+    MainSection:Spacing()
+    
+    MainSection:Toggle("inspector_toggle", "Enable Target Inspector", function(state)
         persistentState.inspectorEnabled = state
         if state then
-            DestroyPanel()
-            currentTargetData = nil
-            currentTargetName = ""
-            currentTargetType = ""
-            targetDirty = true
-            lastRenderTime = 0
             SafeNotify("Target Inspector enabled", nil, 2)
         else
-            DestroyPanel()
+            ClearPanel()
             SafeNotify("Target Inspector disabled", nil, 2)
         end
     end)
     
-    InspectorSection:SliderFloat("ui_scale", "Target Inspector Scale", 0.8, 2.5, 1.0, "%.1f", function(value)
+    MainSection:SliderFloat("ui_scale", "UI Scale", MIN_SCALE, MAX_SCALE, 1.0, "%.1f", function(value)
         persistentState.uiScale = value
-        if persistentState.inspectorEnabled then
-            DestroyPanel()
-            lastRenderTime = 0
-        end
-    end)
-    
-    InspectorSection:Spacing()
-    
-    InspectorSection:Toggle("mod_detector_toggle", "Enable Mod Inspector", function(state)
-        persistentState.modDetectorEnabled = state
-        if state then
-            SafeNotify("Mod Detector enabled", "Mod Detector", 2)
-            notifiedMods = {}
-            lastModListHash = ""
-            DestroyModPanel()
-            BuildPanel()
-            task.spawn(function()
-                StartModMonitor()
-            end)
-        else
-            SafeNotify("Mod Detector disabled", "Mod Detector", 2)
-            notifiedMods = {}
-            lastModListHash = ""
-            DestroyModPanel()
-        end
-    end)
-        
-    InspectorSection:SliderFloat("mod_panel_scale", "Mod Panel Scale", 0.8, 2.5, 1.0, "%.1f", function(value)
-        persistentState.modPanelScale = value
-        if persistentState.modDetectorEnabled then
-            DestroyModPanel()
-            BuildPanel()
-            lastModListHash = ""
-            UpdatePanel()
-        end
+        ClearPanel()
     end)
 
     local teleportSection = tab:Section("Teleport", "Right")
@@ -2555,40 +2063,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
-local renderFrameCounter = 0
-
 RunService.RenderStepped:Connect(function()
-    renderFrameCounter = renderFrameCounter + 1
-    local shouldRenderESP = (renderFrameCounter % 2 == 0)
-    local shouldRenderPanel = (renderFrameCounter % 3 == 0)
-    
-    if persistentState.inspectorEnabled and shouldRenderPanel then
-        RenderPanel()
-    end
-    
-    if persistentState.itemEspEnabled and shouldRenderESP then
-        RenderItemESP()
-    end
-    
-    if persistentState.corpseEspEnabled and shouldRenderESP then
-        RenderCorpseESP()
-    end
-    
-    if persistentState.bannerEspEnabled and shouldRenderESP then
-        RenderBannerESP()
-    end
-    
-    if persistentState.carEspEnabled and shouldRenderESP then
-        RenderCarESP()
-    end
-    
-    if persistentState.modDetectorEnabled then
-        RenderModPanel()
-    end
-    
-    if renderFrameCounter > 1000 then
-        renderFrameCounter = 0
-    end
+    RenderPanel()
+    RenderItemESP()
+    RenderCorpseESP()
+    RenderBannerESP()
+    RenderCarESP()
 end)
 
 ResetAllToggles()
