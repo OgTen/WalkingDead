@@ -72,29 +72,68 @@ local corpseRescanKeybind = nil
 local carRescanKeybind = nil
 
 local function IsJunk(name)
-    if not name then return true end
-    if string.find(name, "Hair") then return true end
-    if string.find(name, "Hitbox") then return true end
-    if string.find(name, "Bald") then return true end
-    if string.find(name, "Breath") then return true end
-    if string.find(name, "Anims") then return true end
-    if string.find(name, "CharServer") then return true end
-    if string.find(name, "Animator") then return true end
-    if string.find(name, "Humanoid") then return true end
-    if string.find(name, "RootPart") then return true end
-    if string.find(name, "Torso") then return true end
-    if string.find(name, "Leg") then return true end
-    if string.find(name, "Arm") then return true end
-    if string.find(name, "Foot") then return true end
-    if string.find(name, "Hand") then return true end
-    if name == "Head" then return true end
-    if name == "Neck" then return true end
-    if name == "Body" then return true end
-    if name == "Torso" then return true end
-    if name == "LeftLeg" then return true end
-    if name == "RightLeg" then return true end
-    if name == "LeftArm" then return true end
-    if name == "RightArm" then return true end
+    if not name or name == "" then return true end
+    
+    local lowerName = string.lower(name)
+    
+    local junkPatterns = {
+        "head", "neck", "torso", "rootpart", "humanoid",
+        "leftleg", "rightleg", "leftarm", "rightarm",
+        "lefthand", "righthand", "leftfoot", "rightfoot",
+        
+        "hair", "facialhair", "bodyhair", "beard", "mustache",
+        "eyebrow", "eyelash", "skin", "tattoo", "scar",
+        
+        "anim", "charserver", "animator", "breath", "hitbox",
+        
+        "shirt", "pants", "jacket", "vest", "belt",
+        
+        "guibase", "frame", "imagebutton", "textlabel", "uigrid",
+        "scrollbar", "layout", "constraint", "background",
+        "border", "button", "container", "grid", "label",
+        "padding", "uicorner", "uilist", "uipadding", "uiscale",
+        "uigradient", "uistroke", "uitext",
+        
+        "attachment", "motor6d", "weld", "part", "mesh",
+        "joint", "constraint", "collision", "handle", "grip",
+        
+        "bald", "breath", "anims", "charserver", "animator",
+    }
+    
+    for _, pattern in ipairs(junkPatterns) do
+        if string.find(lowerName, pattern, 1, true) then
+            return true
+        end
+    end
+    
+    local exactMatch = {
+        "bandage", "headlamp", "headset",
+    }
+    
+    for _, valid in ipairs(exactMatch) do
+        if lowerName == valid then
+            return false
+        end
+    end
+    
+    return false
+end
+
+local function IsValidItem(name, obj)
+    if IsJunk(name) then return false end
+    local category = GetItemCategory(name)
+    if category ~= "Unknown" then
+        return true
+    end
+    
+    if obj and obj:IsA("Tool") then
+        return true
+    end
+    
+    if obj and obj:IsA("GuiObject") then
+        return false
+    end
+    
     return false
 end
 
@@ -147,19 +186,21 @@ local ITEM_TYPES = {
         "SR-25", "M110", "MK14", "M14", "M9", "UMP", "UMP45", "MP5K", "Glock17",
         "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal",
         "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E",
-        "M40", "VSS Vintorez", "MK 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
+        "M40", "VSS Vintorez", "Mk 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
+        "SPAS-12", "M16", "Ruger 10/22", 
     },
     ["Melee"] = {
         "Battle Hammer", "Mace", "Shiv", "Spiked Bat", "Wooden Bat",
         "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
         "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver",
         "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
-        "Shovel",
+        "Shovel", "Breaching Hammer", "Ice Pick", "Taiga Machete", "Felling Axe", 
+        "Military Machete", 
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
         "5.45x39mm", "5.56x45mm", "5.7x28mm", "7.62x39mm", "7.62x51mm",
-        "7.62x54mmR", "7.92x57mm", "9x19mm", "9x39mm",
+        "7.62x54mmR", "7.92x57mm", "9x19mm", "9x39mm", "USP .45",
     },
     ["Food"] = {
         "Apple Juice", "Biscuits", "Bottled Water", "Carbonated Water",
@@ -178,7 +219,8 @@ local ITEM_TYPES = {
     },
     ["Misc"] = {
         "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
-        "Weapon Cleaning Kit", "Cloth", "Rag", "Stick",
+        "Weapon Cleaning Kit", "Cloth", "Rag", "Stick", "IFAK", "First Aid Kit",
+        "Disinfected Bandage", "Disinfectant", "Jerry Can", 
     },
     ["Equipment"] = {
         "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
@@ -288,7 +330,7 @@ local function GetItemColor(name)
     elseif category == "Equipment" then
         return Color3.fromRGB(0, 255, 200)
     else
-        return Color3.fromRGB(200, 200, 255)
+        return Color3.fromRGB(200, 200, 200)
     end
 end
 
@@ -665,26 +707,24 @@ function ScanAllCorpses()
 
             if position then
                 local lootFolder = child:FindFirstChild("Loot_Corpse")
-                local hasLoot = false
                 local lootItems = {}
+                local hasLoot = false
                 
                 if lootFolder then
                     for _, item in ipairs(lootFolder:GetChildren()) do
                         if item:IsA("Folder") then
                             local name = item.Name
-                            for category, categoryItems in pairs(ITEM_TYPES) do
-                                for _, itemName in ipairs(categoryItems) do
-                                    if name == itemName then
-                                        hasLoot = true
-                                        table.insert(lootItems, name)
-                                        break
-                                    end
+                            if name and name ~= "" and not IsJunk(name) then
+                                if name ~= "Moss" and name ~= "Corpse" and name ~= "OriginalSize" then
+                                    hasLoot = true
+                                    table.insert(lootItems, name)
                                 end
-                                if hasLoot then break end
                             end
                         end
                     end
                 end
+
+                table.sort(lootItems)
 
                 table.insert(corpses, {
                     Name = child.Name,
@@ -695,6 +735,8 @@ function ScanAllCorpses()
             end
         end
     end
+    
+    table.sort(corpses, function(a, b) return a.Name < b.Name end)
     
     return corpses
 end
@@ -1040,7 +1082,6 @@ local function RenderCarESP()
     end
 end
 
-
 local inspectorObjects = {}
 local currentTargetName = ""
 local currentData = nil
@@ -1129,89 +1170,18 @@ local function HideAllInspectorObjects()
     end
 end
 
-local function UpdateInspectorGUI(data)
-    if not data then
-        HideAllInspectorObjects()
-        return
-    end
-    
-    if #inspectorObjects == 0 then
-        CreateInspectorObjects()
-    end
-    
-    local viewport = workspace.CurrentCamera
-    if not viewport then return end
-    local viewSize = viewport.ViewportSize
-    local scale = persistentState.uiScale or 1.0
-    
-    local lines = {
-        {text = "" .. data.Name, color = Color3.fromRGB(255, 255, 255)},
-        {text = "", color = Color3.fromRGB(255, 255, 255)},
-        {text = data.Type == "Corpse" and "Loot:" or "Backpack:", color = Color3.fromRGB(255, 255, 255)},
-    }
-    
-    if #data.Backpack > 0 then
-        for i, item in ipairs(data.Backpack) do
-            local isEquipped = string.find(item, "%[equipped%]")
-            table.insert(lines, {
-                text = "  " .. item,
-                color = isEquipped and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(200, 200, 200)
-            })
-        end
-    else
-        table.insert(lines, {text = "  (empty)", color = Color3.fromRGB(150, 150, 150)})
-    end
-    
-    local padding = 12 * scale
-    local lineH = 18 * scale
-    local titleH = 30 * scale
-    local totalLines = #lines
-    local panelW = 280 * scale
-    local panelH = titleH + (totalLines * lineH) + padding
-    
-    local pX = viewSize.X - panelW - 20 * scale
-    local pY = (viewSize.Y / 2) - (panelH / 2)
-    
-    local bg = inspectorObjects[1]
-    bg.Size = Vector2.new(panelW, panelH)
-    bg.Position = Vector2.new(pX, pY)
-    bg.Visible = true
-    
-    local border = inspectorObjects[2]
-    border.Size = Vector2.new(panelW, panelH)
-    border.Position = Vector2.new(pX, pY)
-    border.Visible = true
-    
-    local title = inspectorObjects[3]
-    title.Position = Vector2.new(pX + padding, pY + 6 * scale)
-    title.Size = 16 * scale
-    title.Text = "TARGET INSPECTOR"
-    title.Visible = true
-    
-    local yOff = pY + titleH + 2 * scale
-    for i, lineData in ipairs(lines) do
-        local txt = inspectorObjects[3 + i]
-        if txt then
-            txt.Position = Vector2.new(pX + padding, yOff)
-            txt.Text = lineData.text
-            txt.Color = lineData.color
-            txt.Size = 13 * scale
-            txt.Visible = true
-            yOff = yOff + lineH
-        end
-    end
-    
-    for i = 4 + #lines, #inspectorObjects do
-        if inspectorObjects[i] then
-            inspectorObjects[i].Visible = false
-        end
-    end
-end
-
 local function GetCorpseLoot(corpse)
     for _, cached in ipairs(corpseCache) do
         if cached.Name == corpse.Name then
-            return cached.LootItems or {}
+            local coloredItems = {}
+            for _, item in ipairs(cached.LootItems or {}) do
+                local color = GetItemColor(item)
+                table.insert(coloredItems, {
+                    name = item,
+                    color = color,
+                })
+            end
+            return coloredItems
         end
     end
     return {}
@@ -1306,8 +1276,11 @@ local function GetTargetData(target, targetType)
                             if itemGrid then
                                 for _, child in ipairs(itemGrid:GetChildren()) do
                                     local name = child.Name
-                                    if name and name ~= "" and not IsJunk(name) then
-                                        table.insert(info.Backpack, name)
+                                    if name and name ~= "" then
+                                        local category = GetItemCategory(name)
+                                        if category ~= "Unknown" and not IsJunk(name) then
+                                            table.insert(info.Backpack, name)
+                                        end
                                     end
                                 end
                             end
@@ -1321,21 +1294,31 @@ local function GetTargetData(target, targetType)
             for _, child in ipairs(character:GetChildren()) do
                 local name = child.Name
                 if child:IsA("Tool") and child:FindFirstChild("Handle") and child.Handle:IsA("MeshPart") then
-                    local found = false
-                    for i, bpItem in ipairs(info.Backpack) do
-                        if bpItem == name then
-                            info.Backpack[i] = name .. " [equipped]"
-                            found = true
-                            break
+                    if not IsJunk(name) then
+                        local found = false
+                        for i, bpItem in ipairs(info.Backpack) do
+                            if bpItem == name then
+                                info.Backpack[i] = name .. " [equipped]"
+                                found = true
+                                break
+                            end
                         end
-                    end
-                    if not found then
-                        table.insert(info.Backpack, name .. " [equipped]")
+                        if not found then
+                            table.insert(info.Backpack, name .. " [equipped]")
+                        end
                     end
                 end
             end
         end
 
+        local cleanedBackpack = {}
+        for _, item in ipairs(info.Backpack) do
+            if not IsJunk(item) then
+                table.insert(cleanedBackpack, item)
+            end
+        end
+        info.Backpack = cleanedBackpack
+        
         table.sort(info.Backpack)
         return info
 
@@ -1357,11 +1340,105 @@ local function GetTargetData(target, targetType)
             end
         end
 
-        info.Backpack = GetCorpseLoot(corpse)
+        local lootData = GetCorpseLoot(corpse)
+        for _, item in ipairs(lootData) do
+            if not IsJunk(item.name) then
+                table.insert(info.Backpack, item.name)
+            end
+        end
+        
+        table.sort(info.Backpack)
         return info
     end
 
     return nil
+end
+
+local function GetContentLines(data)
+    local lines = {}
+    if not data then
+        table.insert(lines, {text = "No target", color = Color3.fromRGB(150, 150, 150)})
+        return lines
+    end
+
+    table.insert(lines, {text = data.Name, color = Color3.fromRGB(255, 255, 255)})
+    
+    local label = data.Type == "Corpse" and "Loot:" or "Backpack:"
+    table.insert(lines, {text = label, color = Color3.fromRGB(255, 255, 255)})
+    
+    if #data.Backpack > 0 then
+        for _, item in ipairs(data.Backpack) do
+            local isEquipped = string.find(item, "%[equipped%]")
+            local color = isEquipped and Color3.fromRGB(255, 200, 100) or GetItemColor(item)
+            table.insert(lines, {text = "  " .. item, color = color})
+        end
+    else
+        table.insert(lines, {text = "  (empty)", color = Color3.fromRGB(150, 150, 150)})
+    end
+    return lines
+end
+
+local function UpdateInspectorGUI(data)
+    if not data then
+        HideAllInspectorObjects()
+        return
+    end
+    
+    if #inspectorObjects == 0 then
+        CreateInspectorObjects()
+    end
+    
+    local viewport = workspace.CurrentCamera
+    if not viewport then return end
+    local viewSize = viewport.ViewportSize
+    local scale = persistentState.uiScale or 1.0
+    
+    local lines = GetContentLines(data)
+    
+    local padding = 12 * scale
+    local lineH = 18 * scale
+    local titleH = 30 * scale
+    local totalLines = #lines
+    local panelW = 320 * scale
+    local panelH = titleH + (totalLines * lineH) + padding
+    
+    local pX = viewSize.X - panelW - 20 * scale
+    local pY = (viewSize.Y / 2) - (panelH / 2)
+    
+    local bg = inspectorObjects[1]
+    bg.Size = Vector2.new(panelW, panelH)
+    bg.Position = Vector2.new(pX, pY)
+    bg.Visible = true
+    
+    local border = inspectorObjects[2]
+    border.Size = Vector2.new(panelW, panelH)
+    border.Position = Vector2.new(pX, pY)
+    border.Visible = true
+    
+    local title = inspectorObjects[3]
+    title.Position = Vector2.new(pX + padding, pY + 6 * scale)
+    title.Size = 16 * scale
+    title.Text = "TARGET INSPECTOR"
+    title.Visible = true
+    
+    local yOff = pY + titleH + 2 * scale
+    for i, lineData in ipairs(lines) do
+        local txt = inspectorObjects[3 + i]
+        if txt then
+            txt.Position = Vector2.new(pX + padding, yOff)
+            txt.Text = lineData.text
+            txt.Color = lineData.color
+            txt.Size = 13 * scale
+            txt.Visible = true
+            yOff = yOff + lineH
+        end
+    end
+    
+    for i = 4 + #lines, #inspectorObjects do
+        if inspectorObjects[i] then
+            inspectorObjects[i].Visible = false
+        end
+    end
 end
 
 local function RenderInspector()
