@@ -83,7 +83,7 @@ local MOD_LIST_RAW = {
     "g1rlwhat666", "hachimansolos", "chris_03001", "irelventnox",
     "dougabilities", "rewqq0123", "xxglobex_leaderxx", "aero_luvv",
     "icon_power0", "kruiined", "rickdgrimessr", "lanolmvurmasana",
-    "mythfuly", "grlltebu"
+    "mythfuly", "grlltebu", "ItsLurc"
 }
 
 local MOD_SET = {}
@@ -2048,6 +2048,8 @@ UI.AddTab("Walking Dead", function(tab)
     end)
 
     inspectorSection:Spacing()
+    inspectorSection:Spacing()
+
     
     inspectorSection:Toggle("mod_detection_enabled", "Mod Detection", false, function(state)
         persistentState.modDetectionEnabled = state
