@@ -35,6 +35,9 @@ local persistentState = {
     carDistance = 500,
     teleportEnabled = false,
     selectedPOI = 0,
+    modDetectionEnabled = false,
+    autoLeaveEnabled = false,
+    autoLeaveDelay = 1.0,
 }
 
 local emptyScanTracker = {}
@@ -71,6 +74,220 @@ local bannerRescanKeybind = nil
 local corpseRescanKeybind = nil
 local carRescanKeybind = nil
 
+local MOD_LIST_RAW = {
+    "kiidragnos", "supply_runner", "bikerr_r", "jasper155555",
+    "fadextoxmyst", "skaflora", "haticeoyung", "etwanrosa2point0",
+    "therealskylad3144", "placvid", "domtwdg", "cwiinder",
+    "reiisreallyshy", "mqriahs", "callmenucu", "sephriothgatsuga",
+    "thenotleq", "forest_gump04", "d4rl1nggh0ul", "varsityrebel",
+    "g1rlwhat666", "hachimansolos", "chris_03001", "irelventnox",
+    "dougabilities", "rewqq0123", "xxglobex_leaderxx", "aero_luvv",
+    "icon_power0", "kruiined", "rickdgrimessr", "lanolmvurmasana",
+    "mythfuly", "grlltebu"
+}
+
+local MOD_SET = {}
+for _, name in ipairs(MOD_LIST_RAW) do
+    MOD_SET[string.lower(name)] = true
+end
+
+local function AutoLeaveGame()
+    local delay = persistentState.autoLeaveDelay or 1.0
+    SafeNotify("Leaving game in " .. math.floor(delay) .. " seconds...", "Auto-Leave", delay + 1)
+    task.wait(delay)
+    SafeNotify("Leaving now...", "Auto-Leave", 1)
+    task.wait(0.3)
+    
+    local VK_ESCAPE = 0x1B
+    local VK_L = 0x4C
+    local VK_RETURN = 0x0D
+    
+    pcall(function() keypress(VK_ESCAPE) end)
+    task.wait(0.25)
+    pcall(function() keyrelease(VK_ESCAPE) end)
+    task.wait(0.25)
+    
+    pcall(function() keypress(VK_L) end)
+    task.wait(0.25)
+    pcall(function() keyrelease(VK_L) end)
+    task.wait(0.25)
+    
+    pcall(function() keypress(VK_RETURN) end)
+    task.wait(0.25)
+    pcall(function() keyrelease(VK_RETURN) end)
+end
+
+local function TriggerAutoLeave(reason)
+    if not persistentState.autoLeaveEnabled then return end
+    reason = reason or "Mod detected"
+    SafeNotify(reason .. " - Leaving in " .. math.floor(persistentState.autoLeaveDelay) .. "s", "Auto-Leave", persistentState.autoLeaveDelay + 2)
+    task.wait(persistentState.autoLeaveDelay)
+    AutoLeaveGame()
+end
+
+local function IsPlayerMod(plr)
+    if plr == player then return false end
+    
+    local plrName = plr.Name
+    if plrName and MOD_SET[string.lower(plrName)] then
+        return true
+    end
+    
+    local plrDisplayName = plr.DisplayName
+    if plrDisplayName and MOD_SET[string.lower(plrDisplayName)] then
+        return true
+    end
+    
+    return false
+end
+
+local function GetModsInGame()
+    local found = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if IsPlayerMod(plr) then
+            table.insert(found, plr.Name)
+        end
+    end
+    return found
+end
+
+local modMonitorConnection = nil
+local modRemoveConnection = nil
+local monitorActive = false
+local periodicScanTask = nil
+
+local function PerformModScan(notifyResults)
+    local found = GetModsInGame()
+    if #found > 0 then
+        local modList = table.concat(found, ", ")
+        local message = #found .. " mod(s) in server: " .. modList
+        
+        print("[MOD DETECTION] " .. message)
+        
+        if notifyResults then
+            SafeNotify(message, "Mod Detection", 5)
+            pcall(function()
+                notify(message, "Mod Detection", 5)
+            end)
+        end
+        
+        if persistentState.autoLeaveEnabled then
+            TriggerAutoLeave(#found .. " mod(s) found: " .. modList)
+        end
+        return found
+    else
+        if notifyResults then
+            local message = "No mods found in server"
+            SafeNotify(message, "Mod Detection", 2)
+            pcall(function()
+                notify(message, "Mod Detection", 2)
+            end)
+        end
+        return {}
+    end
+end
+
+local function StartPeriodicScan()
+    if periodicScanTask then return end
+    periodicScanTask = task.spawn(function()
+        while persistentState.modDetectionEnabled and monitorActive do
+            task.wait(30)
+            if persistentState.modDetectionEnabled then
+                local found = GetModsInGame()
+                if #found > 0 and persistentState.autoLeaveEnabled then
+                    local modList = table.concat(found, ", ")
+                    local message = #found .. " mod(s) still in server: " .. modList
+                    print("[MOD DETECTION] " .. message)
+                    SafeNotify(message, "Mod Detection", 5)
+                    TriggerAutoLeave(#found .. " mod(s) still in server")
+                    break
+                end
+            end
+        end
+        periodicScanTask = nil
+    end)
+end
+
+local function StopPeriodicScan()
+    if periodicScanTask then
+        task.cancel(periodicScanTask)
+        periodicScanTask = nil
+    end
+end
+
+local function StartModDetection()
+    if monitorActive then return end
+    monitorActive = true
+    
+    if modMonitorConnection then
+        modMonitorConnection:Disconnect()
+        modMonitorConnection = nil
+    end
+    
+    if modRemoveConnection then
+        modRemoveConnection:Disconnect()
+        modRemoveConnection = nil
+    end
+    
+    task.spawn(function()
+        task.wait(0.5)
+        
+        if not persistentState.modDetectionEnabled then
+            monitorActive = false
+            return
+        end
+        
+        PerformModScan(true)
+        
+        if persistentState.modDetectionEnabled then
+            StartPeriodicScan()
+        end
+    end)
+    
+    modMonitorConnection = Players.PlayerAdded:Connect(function(plr)
+        if persistentState.modDetectionEnabled and IsPlayerMod(plr) then
+            local message = "MOD JOINED: " .. plr.Name
+            print("[MOD DETECTION] " .. message)
+            SafeNotify(message, "Mod Detection", 5)
+            pcall(function()
+                notify(message, "Mod Detection", 5)
+            end)
+            
+            if persistentState.autoLeaveEnabled then
+                modMonitorConnection:Disconnect()
+                modMonitorConnection = nil
+                monitorActive = false
+                StopPeriodicScan()
+                TriggerAutoLeave("Mod joined: " .. plr.Name)
+            end
+        end
+    end)
+    
+    modRemoveConnection = Players.PlayerRemoving:Connect(function(plr)
+        if persistentState.modDetectionEnabled and IsPlayerMod(plr) then
+            local message = "MOD LEFT: " .. plr.Name
+            print("[MOD DETECTION] " .. message)
+            SafeNotify(message, "Mod Detection", 3)
+            pcall(function()
+                notify(message, "Mod Detection", 3)
+            end)
+        end
+    end)
+end
+
+local function StopModDetection()
+    monitorActive = false
+    StopPeriodicScan()
+    if modMonitorConnection then
+        modMonitorConnection:Disconnect()
+        modMonitorConnection = nil
+    end
+    if modRemoveConnection then
+        modRemoveConnection:Disconnect()
+        modRemoveConnection = nil
+    end
+end
+
 local function IsJunk(name)
     if not name or name == "" then return true end
     
@@ -80,23 +297,17 @@ local function IsJunk(name)
         "head", "neck", "torso", "rootpart", "humanoid",
         "leftleg", "rightleg", "leftarm", "rightarm",
         "lefthand", "righthand", "leftfoot", "rightfoot",
-        
         "hair", "facialhair", "bodyhair", "beard", "mustache",
         "eyebrow", "eyelash", "skin", "tattoo", "scar",
-        
         "anim", "charserver", "animator", "breath", "hitbox",
-        
         "shirt", "pants", "jacket", "vest", "belt",
-        
         "guibase", "frame", "imagebutton", "textlabel", "uigrid",
         "scrollbar", "layout", "constraint", "background",
         "border", "button", "container", "grid", "label",
         "padding", "uicorner", "uilist", "uipadding", "uiscale",
         "uigradient", "uistroke", "uitext",
-        
         "attachment", "motor6d", "weld", "part", "mesh",
         "joint", "constraint", "collision", "handle", "grip",
-        
         "bald", "breath", "anims", "charserver", "animator",
     }
     
@@ -114,24 +325,6 @@ local function IsJunk(name)
         if lowerName == valid then
             return false
         end
-    end
-    
-    return false
-end
-
-local function IsValidItem(name, obj)
-    if IsJunk(name) then return false end
-    local category = GetItemCategory(name)
-    if category ~= "Unknown" then
-        return true
-    end
-    
-    if obj and obj:IsA("Tool") then
-        return true
-    end
-    
-    if obj and obj:IsA("GuiObject") then
-        return false
     end
     
     return false
@@ -399,7 +592,8 @@ end
 local itemPool = DrawingPool.new(200)
 local itemCache = {}
 local itemFrameCounter = 0
-local ITEM_UPDATE_EVERY_N_FRAMES = 2
+local ITEM_UPDATE_EVERY_N_FRAMES = 1
+local itemLastCount = -1
 
 local function ClearItemDrawings()
     itemPool:Clear()
@@ -524,12 +718,25 @@ local function ScanAllItems()
     return foundItems
 end
 
+local function ScanItemsAndNotify()
+    local items = ScanAllItems()
+    local count = #items
+    itemLastCount = count
+    if count > 0 then
+        SafeNotify("Item ESP - " .. count .. " items found", "Item ESP", 2)
+    else
+        SafeNotify("Item ESP - No items found", "Item ESP", 2)
+    end
+    return items
+end
+
 local function RenderItemESP()
     persistentState.itemEspEnabled = UI.GetValue("item_esp_toggle") or false
 
     if not persistentState.itemEspEnabled then
         itemPool:HideAll()
         itemCache = {}
+        itemLastCount = -1
         return
     end
 
@@ -548,6 +755,7 @@ local function RenderItemESP()
     if not hasEnabled then
         itemPool:HideAll()
         itemCache = {}
+        itemLastCount = -1
         return
     end
 
@@ -649,7 +857,10 @@ end
 local corpsePool = DrawingPool.new(100)
 local corpseCache = {}
 local corpseFrameCounter = 0
-local CORPSE_UPDATE_EVERY_N_FRAMES = 3
+local CORPSE_UPDATE_EVERY_N_FRAMES = 1
+local corpseScanned = false
+local corpseLastCount = -1
+local corpseLastLootCount = -1
 
 local function ClearCorpseDrawings()
     corpsePool:Clear()
@@ -741,14 +952,21 @@ function ScanAllCorpses()
     return corpses
 end
 
-local function RefreshCorpseCache()
+local function ScanCorpsesAndNotify()
     corpseCache = ScanAllCorpses()
-    if #corpseCache > 0 then
-        local lootCount = 0
-        for _, c in ipairs(corpseCache) do
-            if c.HasLoot then lootCount = lootCount + 1 end
-        end
-        SafeNotify("Corpse ESP - " .. #corpseCache .. " corpses found (" .. lootCount .. " with loot)", "Corpse ESP", 2)
+    corpseScanned = true
+    
+    local count = #corpseCache
+    local lootCount = 0
+    for _, c in ipairs(corpseCache) do
+        if c.HasLoot then lootCount = lootCount + 1 end
+    end
+    
+    corpseLastCount = count
+    corpseLastLootCount = lootCount
+    
+    if count > 0 then
+        SafeNotify("Corpse ESP - " .. count .. " corpses found (" .. lootCount .. " with loot)", "Corpse ESP", 2)
     else
         SafeNotify("Corpse ESP - No corpses found", "Corpse ESP", 2)
     end
@@ -760,10 +978,13 @@ local function RenderCorpseESP()
     if not persistentState.corpseEspEnabled then
         corpsePool:HideAll()
         corpseCache = {}
+        corpseScanned = false
+        corpseLastCount = -1
+        corpseLastLootCount = -1
         return
     end
 
-    if #corpseCache == 0 then
+    if not corpseScanned or #corpseCache == 0 then
         corpsePool:HideAll()
         return
     end
@@ -785,6 +1006,8 @@ local function RenderCorpseESP()
 
     local visibleCorpses = {}
     for _, corpse in ipairs(corpseCache) do
+        if not corpse.Position then continue end
+        
         local distance = (corpse.Position - cameraPos).Magnitude
         if distance <= persistentState.corpseDistance then
             local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
@@ -820,8 +1043,9 @@ end
 local bannerPool = DrawingPool.new(50)
 local bannerCache = {}
 local bannerFrameCounter = 0
-local BANNER_UPDATE_EVERY_N_FRAMES = 3
+local BANNER_UPDATE_EVERY_N_FRAMES = 1
 local bannerScanned = false
+local bannerLastCount = -1
 
 local function ClearBannerDrawings()
     bannerPool:Clear()
@@ -832,7 +1056,6 @@ function ScanBanners()
 
     local bannerFolder = Workspace:FindFirstChild("Banners")
     if not bannerFolder then
-        bannerScanned = true
         return banners
     end
 
@@ -849,8 +1072,19 @@ function ScanBanners()
         end
     end
 
-    bannerScanned = true
     return banners
+end
+
+local function ScanBannersAndNotify()
+    bannerCache = ScanBanners()
+    bannerScanned = true
+    local count = #bannerCache
+    bannerLastCount = count
+    if count > 0 then
+        SafeNotify("Banner ESP - " .. count .. " banners found", "Banner ESP", 2)
+    else
+        SafeNotify("Banner ESP - No banners found", "Banner ESP", 2)
+    end
 end
 
 local function RenderBannerESP()
@@ -864,11 +1098,7 @@ local function RenderBannerESP()
     end
 
     if not bannerScanned then
-        bannerCache = ScanBanners()
-        bannerScanned = true
-        if #bannerCache > 0 then
-            SafeNotify("Banner ESP - " .. #bannerCache .. " banners found", "Banner ESP", 2)
-        end
+        ScanBannersAndNotify()
     end
 
     if #bannerCache == 0 then
@@ -927,9 +1157,10 @@ end
 local carPool = DrawingPool.new(50)
 local carCache = {}
 local carFrameCounter = 0
-local CAR_UPDATE_EVERY_N_FRAMES = 3
+local CAR_UPDATE_EVERY_N_FRAMES = 1
 local carScanned = false
 local Cars = Workspace:FindFirstChild("Cars")
+local carLastCount = -1
 
 local function ToAscii(text)
     if not text then return "Unknown" end
@@ -996,6 +1227,16 @@ local function ScanCars()
     return count
 end
 
+local function ScanCarsAndNotify()
+    local count = ScanCars()
+    carLastCount = count
+    if count > 0 then
+        SafeNotify("Car ESP - " .. count .. " vehicles found", "Car ESP", 2)
+    else
+        SafeNotify("Car ESP - No vehicles found", "Car ESP", 2)
+    end
+end
+
 local function RenderCarESP()
     persistentState.carEspEnabled = UI.GetValue("car_esp_toggle") or false
 
@@ -1003,14 +1244,12 @@ local function RenderCarESP()
         carPool:HideAll()
         carCache = {}
         carScanned = false
+        carLastCount = -1
         return
     end
 
     if not carScanned then
-        local count = ScanCars()
-        if count > 0 then
-            SafeNotify("Car ESP - " .. count .. " vehicles found", "Car ESP", 2)
-        end
+        ScanCarsAndNotify()
     end
 
     if #carCache == 0 then
@@ -1521,6 +1760,9 @@ local function ResetAllToggles()
     persistentState.carEspEnabled = false
     persistentState.teleportEnabled = false
     persistentState.selectedPOI = 0
+    persistentState.modDetectionEnabled = false
+    persistentState.autoLeaveEnabled = false
+    persistentState.autoLeaveDelay = 1.0
 
     itemPool:Clear()
     corpsePool:Clear()
@@ -1534,6 +1776,8 @@ local function ResetAllToggles()
     cachedPlayers = {}
     currentTargetName = ""
     currentData = nil
+    
+    StopModDetection()
 end
 
 local function SetAllUITogglesFalse()
@@ -1549,6 +1793,9 @@ local function SetAllUITogglesFalse()
     UI.SetValue("car_distance", 500)
     UI.SetValue("teleport_enabled", false)
     UI.SetValue("teleport_poi", 0)
+    UI.SetValue("mod_detection_enabled", false)
+    UI.SetValue("mod_autoleave_enabled", false)
+    UI.SetValue("mod_autoleave_delay", 1.0)
     
     UI.SetValue("item_category_Equipment", false)
     UI.SetValue("item_category_Weapons", false)
@@ -1580,6 +1827,9 @@ local function RestoreUIState()
     UI.SetValue("car_distance", persistentState.carDistance or 500)
     UI.SetValue("teleport_enabled", persistentState.teleportEnabled or false)
     UI.SetValue("teleport_poi", persistentState.selectedPOI or 0)
+    UI.SetValue("mod_detection_enabled", persistentState.modDetectionEnabled or false)
+    UI.SetValue("mod_autoleave_enabled", persistentState.autoLeaveEnabled or false)
+    UI.SetValue("mod_autoleave_delay", persistentState.autoLeaveDelay or 1.0)
     
     UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
@@ -1601,6 +1851,10 @@ local function RestoreUIState()
             toggleRefs[refName].Value = enabled
         end
     end
+    
+    if persistentState.modDetectionEnabled then
+        StartModDetection()
+    end
 end
 
 UI.AddTab("Walking Dead", function(tab)
@@ -1610,23 +1864,14 @@ UI.AddTab("Walking Dead", function(tab)
         persistentState.itemEspEnabled = state
         if state then
             emptyScanTracker = {}
-            if #itemCache == 0 then
-                local camera = workspace.CurrentCamera
-                if camera then
-                    itemCache = ScanAllItems()
-                    if #itemCache > 0 then
-                        SafeNotify("Item ESP enabled", "Item ESP", 2)
-                    else
-                        SafeNotify("Item ESP enabled - no items nearby", "Item ESP", 2)
-                    end
-                end
-            else
-                SafeNotify("Item ESP enabled", "Item ESP", 2)
-            end
+            itemCache = {}
+            itemLastCount = -1
+            ScanItemsAndNotify()
         else
             itemPool:HideAll()
             itemCache = {}
             emptyScanTracker = {}
+            itemLastCount = -1
             SafeNotify("Item ESP disabled", "Item ESP", 2)
         end
     end)
@@ -1694,7 +1939,7 @@ UI.AddTab("Walking Dead", function(tab)
         if state then
             bannerCache = {}
             bannerScanned = false
-            SafeNotify("Banner ESP enabled", "Banner ESP", 2)
+            ScanBannersAndNotify()
         else
             bannerPool:HideAll()
             bannerCache = {}
@@ -1716,10 +1961,16 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Toggle("corpse_esp_toggle", "Enable Corpse ESP", function(state)
         persistentState.corpseEspEnabled = state
         if state then
-            RefreshCorpseCache()
+            corpseScanned = false
+            corpseLastCount = -1
+            corpseLastLootCount = -1
+            ScanCorpsesAndNotify()
         else
             corpsePool:HideAll()
             corpseCache = {}
+            corpseScanned = false
+            corpseLastCount = -1
+            corpseLastLootCount = -1
             SafeNotify("Corpse ESP disabled", nil, 2)
         end
     end)
@@ -1739,11 +1990,13 @@ UI.AddTab("Walking Dead", function(tab)
         if state then
             carCache = {}
             carScanned = false
-            SafeNotify("Vehicle ESP enabled", "Vehicle ESP", 2)
+            carLastCount = -1
+            ScanCarsAndNotify()
         else
             carPool:HideAll()
             carCache = {}
             carScanned = false
+            carLastCount = -1
             SafeNotify("Vehicle ESP disabled", "Vehicle ESP", 2)
         end
     end)
@@ -1758,7 +2011,21 @@ UI.AddTab("Walking Dead", function(tab)
     MainSection:Spacing()
     MainSection:Spacing()
 
-    MainSection:Toggle("inspector_toggle", "Enable Target Inspector", function(state)
+    local teleportSection = tab:Section("Teleport", "Right")
+
+    teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
+        persistentState.selectedPOI = index
+        SafeNotify("Selected: " .. text, "Teleport", 1)
+    end)
+
+    teleportSection:Button("Teleport to Selected", function()
+        local selectedIndex = UI.GetValue("teleport_poi") or 0
+        TeleportToPOI(selectedIndex)
+    end)
+
+    local inspectorSection = tab:Section("Inspectors", "Right")
+
+    inspectorSection:Toggle("inspector_toggle", "Enable Target Inspector", function(state)
         persistentState.inspectorEnabled = state
         if state then
             currentTargetName = ""
@@ -1773,24 +2040,62 @@ UI.AddTab("Walking Dead", function(tab)
         end
     end)
 
-    MainSection:SliderFloat("ui_scale", "UI Scale", 0.8, 2.5, 1.0, "%.1f", function(value)
+    inspectorSection:SliderFloat("ui_scale", "UI Scale", 0.8, 2.5, 1.0, "%.1f", function(value)
         persistentState.uiScale = value
         if currentData then
             UpdateInspectorGUI(currentData)
         end
     end)
 
-    local teleportSection = tab:Section("Teleport", "Right")
-
-    teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
-        persistentState.selectedPOI = index
-        SafeNotify("Selected: " .. text, "Teleport", 1)
+    inspectorSection:Spacing()
+    
+    inspectorSection:Toggle("mod_detection_enabled", "Mod Detection", false, function(state)
+        persistentState.modDetectionEnabled = state
+        if state then
+            SafeNotify("Scanning for mods...", "Mod Detection", 2)
+            pcall(function()
+                notify("Scanning for mods...", "Mod Detection", 2)
+            end)
+            StartModDetection()
+        else
+            StopModDetection()
+            SafeNotify("Mod Detection disabled", "Mod Detection", 2)
+        end
     end)
 
-    teleportSection:Button("Teleport to Selected", function()
-        local selectedIndex = UI.GetValue("teleport_poi") or 0
-        TeleportToPOI(selectedIndex)
+    inspectorSection:Toggle("mod_autoleave_enabled", "Auto-Leave on Mod Detection", false, function(state)
+        persistentState.autoLeaveEnabled = state
+        if state then
+            if persistentState.modDetectionEnabled then
+                SafeNotify("Auto-Leave enabled - will leave when mod is detected", "Auto-Leave", 2)
+                task.spawn(function()
+                    task.wait(0.5)
+                    local found = GetModsInGame()
+                    if #found > 0 then
+                        local modList = table.concat(found, ", ")
+                        SafeNotify(#found .. " mod(s) in server! Leaving in " .. math.floor(persistentState.autoLeaveDelay) .. "s", "Auto-Leave", persistentState.autoLeaveDelay + 2)
+                        task.wait(persistentState.autoLeaveDelay)
+                        AutoLeaveGame()
+                    end
+                end)
+            else
+                SafeNotify("Auto-Leave requires Mod Detection to be enabled", "Auto-Leave", 3)
+                task.spawn(function()
+                    task.wait(0.1)
+                    UI.SetValue("mod_autoleave_enabled", false)
+                    persistentState.autoLeaveEnabled = false
+                end)
+            end
+        else
+            SafeNotify("Auto-Leave disabled", "Auto-Leave", 2)
+        end
     end)
+
+    inspectorSection:SliderFloat("mod_autoleave_delay", "Leave Delay", 0.5, 20.0, 1.0, "%.1f", function(value)
+        persistentState.autoLeaveDelay = value
+    end)
+
+    inspectorSection:Spacing()
 
     local infoSection = tab:Section("Info", "Right")
 
@@ -1854,7 +2159,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
         if key == boundKey then
             pcall(function()
-                RefreshCorpseCache()
+                ScanCorpsesAndNotify()
                 SafeNotify("Corpse ESP rescanned", "Rescan", 1)
             end)
         end
