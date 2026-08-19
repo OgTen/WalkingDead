@@ -380,7 +380,7 @@ local ITEM_TYPES = {
         "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal",
         "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E",
         "M40", "VSS Vintorez", "Mk 2 Grenade", "M67 Grenade", "M18 Smoke Grenade",
-        "SPAS-12", "M16", "Ruger 10/22", "RPK",
+        "SPAS-12", "M16", "Ruger 10/22", "RPK", "M82A1",
     },
     ["Melee"] = {
         "Battle Hammer", "Mace", "Shiv", "Spiked Bat", "Wooden Bat",
