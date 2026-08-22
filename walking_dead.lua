@@ -20,19 +20,62 @@ local function SafeNotify(message, title, duration)
     pcall(notify, message, title or "Walking Dead", duration or 2)
 end
 
+local COLORS_FILE = "walking_dead_colors.json"
+
+local function LoadSavedColors()
+    local colors = {
+        itemWeapons = Color3.fromRGB(255, 200, 100),
+        itemMelee = Color3.fromRGB(255, 150, 50),
+        itemAmmo = Color3.fromRGB(255, 255, 100),
+        itemFood = Color3.fromRGB(100, 255, 100),
+        itemKeycards = Color3.fromRGB(255, 215, 0),
+        itemMisc = Color3.fromRGB(200, 200, 255),
+        itemEquipment = Color3.fromRGB(0, 255, 200),
+        corpse = Color3.fromRGB(255, 50, 50),
+        corpseLoot = Color3.fromRGB(50, 255, 50),
+        banner = Color3.fromRGB(0, 200, 255),
+        car = Color3.fromRGB(255, 200, 50),
+    }
+    if isfile and isfile(COLORS_FILE) then
+        local success, data = pcall(readfile, COLORS_FILE)
+        if success and data then
+            local parsed = game:GetService("HttpService"):JSONDecode(data)
+            if parsed then
+                for key, value in pairs(parsed) do
+                    if value and value.r and value.g and value.b then
+                        colors[key] = Color3.fromRGB(value.r * 255, value.g * 255, value.b * 255)
+                    end
+                end
+            end
+        end
+    end
+    return colors
+end
+
+local function SaveColors(colors)
+    local data = {}
+    for key, color in pairs(colors) do
+        data[key] = { r = color.R, g = color.G, b = color.B }
+    end
+    local json = game:GetService("HttpService"):JSONEncode(data)
+    if writefile then writefile(COLORS_FILE, json) end
+end
+
+local COLORS = LoadSavedColors()
+
 local persistentState = {
     inspectorEnabled = false,
     uiScale = 1.0,
     itemEspEnabled = false,
-    itemDistance = 150,
+    itemDistance = 3000,
     itemToggles = {},
     categoryToggles = {},
     corpseEspEnabled = false,
-    corpseDistance = 1000,
+    corpseDistance = 3000,
     bannerEspEnabled = false,
-    bannerDistance = 500,
+    bannerDistance = 3000,
     carEspEnabled = false,
-    carDistance = 500,
+    carDistance = 3000,
     teleportEnabled = false,
     selectedPOI = 0,
     modDetectionEnabled = false,
@@ -97,21 +140,21 @@ local function AutoLeaveGame()
     task.wait(delay)
     SafeNotify("Leaving now...", "Auto-Leave", 1)
     task.wait(0.3)
-    
+
     local VK_ESCAPE = 0x1B
     local VK_L = 0x4C
     local VK_RETURN = 0x0D
-    
+
     pcall(function() keypress(VK_ESCAPE) end)
     task.wait(0.25)
     pcall(function() keyrelease(VK_ESCAPE) end)
     task.wait(0.25)
-    
+
     pcall(function() keypress(VK_L) end)
     task.wait(0.25)
     pcall(function() keyrelease(VK_L) end)
     task.wait(0.25)
-    
+
     pcall(function() keypress(VK_RETURN) end)
     task.wait(0.25)
     pcall(function() keyrelease(VK_RETURN) end)
@@ -127,17 +170,17 @@ end
 
 local function IsPlayerMod(plr)
     if plr == player then return false end
-    
+
     local plrName = plr.Name
     if plrName and MOD_SET[string.lower(plrName)] then
         return true
     end
-    
+
     local plrDisplayName = plr.DisplayName
     if plrDisplayName and MOD_SET[string.lower(plrDisplayName)] then
         return true
     end
-    
+
     return false
 end
 
@@ -161,16 +204,16 @@ local function PerformModScan(notifyResults)
     if #found > 0 then
         local modList = table.concat(found, ", ")
         local message = #found .. " mod(s) in server: " .. modList
-        
+
         print("[MOD DETECTION] " .. message)
-        
+
         if notifyResults then
             SafeNotify(message, "Mod Detection", 5)
             pcall(function()
                 notify(message, "Mod Detection", 5)
             end)
         end
-        
+
         if persistentState.autoLeaveEnabled then
             TriggerAutoLeave(#found .. " mod(s) found: " .. modList)
         end
@@ -218,32 +261,32 @@ end
 local function StartModDetection()
     if monitorActive then return end
     monitorActive = true
-    
+
     if modMonitorConnection then
         modMonitorConnection:Disconnect()
         modMonitorConnection = nil
     end
-    
+
     if modRemoveConnection then
         modRemoveConnection:Disconnect()
         modRemoveConnection = nil
     end
-    
+
     task.spawn(function()
         task.wait(0.5)
-        
+
         if not persistentState.modDetectionEnabled then
             monitorActive = false
             return
         end
-        
+
         PerformModScan(true)
-        
+
         if persistentState.modDetectionEnabled then
             StartPeriodicScan()
         end
     end)
-    
+
     modMonitorConnection = Players.PlayerAdded:Connect(function(plr)
         if persistentState.modDetectionEnabled and IsPlayerMod(plr) then
             local message = "MOD JOINED: " .. plr.Name
@@ -252,7 +295,7 @@ local function StartModDetection()
             pcall(function()
                 notify(message, "Mod Detection", 5)
             end)
-            
+
             if persistentState.autoLeaveEnabled then
                 modMonitorConnection:Disconnect()
                 modMonitorConnection = nil
@@ -262,7 +305,7 @@ local function StartModDetection()
             end
         end
     end)
-    
+
     modRemoveConnection = Players.PlayerRemoving:Connect(function(plr)
         if persistentState.modDetectionEnabled and IsPlayerMod(plr) then
             local message = "MOD LEFT: " .. plr.Name
@@ -290,9 +333,9 @@ end
 
 local function IsJunk(name)
     if not name or name == "" then return true end
-    
+
     local lowerName = string.lower(name)
-    
+
     local junkPatterns = {
         "head", "neck", "torso", "rootpart", "humanoid",
         "leftleg", "rightleg", "leftarm", "rightarm",
@@ -310,23 +353,23 @@ local function IsJunk(name)
         "joint", "constraint", "collision", "handle", "grip",
         "bald", "breath", "anims", "charserver", "animator",
     }
-    
+
     for _, pattern in ipairs(junkPatterns) do
         if string.find(lowerName, pattern, 1, true) then
             return true
         end
     end
-    
+
     local exactMatch = {
         "bandage", "headlamp", "headset",
     }
-    
+
     for _, valid in ipairs(exactMatch) do
         if lowerName == valid then
             return false
         end
     end
-    
+
     return false
 end
 
@@ -387,8 +430,8 @@ local ITEM_TYPES = {
         "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit",
         "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver",
         "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife",
-        "Shovel", "Breaching Hammer", "Ice Pick", "Taiga Machete", "Felling Axe", 
-        "Military Machete", 
+        "Shovel", "Breaching Hammer", "Ice Pick", "Taiga Machete", "Felling Axe",
+        "Military Machete",
     },
     ["Ammo"] = {
         ".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG",
@@ -413,14 +456,14 @@ local ITEM_TYPES = {
     ["Misc"] = {
         "Bandage", "Improvised Bandage", "FlashLight", "Metal Parts",
         "Weapon Cleaning Kit", "Cloth", "Rag", "Stick", "IFAK", "First Aid Kit",
-        "Disinfected Bandage", "Disinfectant", "Jerry Can", 
+        "Disinfected Bandage", "Disinfectant", "Jerry Can",
     },
     ["Equipment"] = {
         "MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet",
         "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest",
         "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier",
         "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest",
-        "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", 
+        "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag",
         "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
         "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
     },
@@ -509,19 +552,19 @@ end
 local function GetItemColor(name)
     local category = GetItemCategory(name)
     if category == "Weapons" then
-        return Color3.fromRGB(255, 200, 100)
+        return COLORS.itemWeapons
     elseif category == "Melee" then
-        return Color3.fromRGB(255, 150, 50)
+        return COLORS.itemMelee
     elseif category == "Ammo" then
-        return Color3.fromRGB(255, 255, 100)
+        return COLORS.itemAmmo
     elseif category == "Food" then
-        return Color3.fromRGB(100, 255, 100)
+        return COLORS.itemFood
     elseif category == "Keycards" then
-        return Color3.fromRGB(255, 215, 0)
+        return COLORS.itemKeycards
     elseif category == "Misc" then
-        return Color3.fromRGB(200, 200, 255)
+        return COLORS.itemMisc
     elseif category == "Equipment" then
-        return Color3.fromRGB(0, 255, 200)
+        return COLORS.itemEquipment
     else
         return Color3.fromRGB(200, 200, 200)
     end
@@ -544,7 +587,7 @@ function DrawingPool:Ensure(size)
     if size > self.maxSize then
         self.maxSize = size + 10
     end
-    
+
     while #self.objects < self.maxSize do
         local label = Drawing.new("Text")
         label.Font = Drawing.Fonts.System
@@ -772,7 +815,7 @@ local function RenderItemESP()
     local camera = workspace.CurrentCamera
     if not camera then return end
 
-    persistentState.itemDistance = UI.GetValue("item_distance") or 150
+    persistentState.itemDistance = 3000
     local cameraPos = camera.Position
 
     if #itemCache == 0 then
@@ -920,7 +963,7 @@ function ScanAllCorpses()
                 local lootFolder = child:FindFirstChild("Loot_Corpse")
                 local lootItems = {}
                 local hasLoot = false
-                
+
                 if lootFolder then
                     for _, item in ipairs(lootFolder:GetChildren()) do
                         if item:IsA("Folder") then
@@ -946,25 +989,25 @@ function ScanAllCorpses()
             end
         end
     end
-    
+
     table.sort(corpses, function(a, b) return a.Name < b.Name end)
-    
+
     return corpses
 end
 
 local function ScanCorpsesAndNotify()
     corpseCache = ScanAllCorpses()
     corpseScanned = true
-    
+
     local count = #corpseCache
     local lootCount = 0
     for _, c in ipairs(corpseCache) do
         if c.HasLoot then lootCount = lootCount + 1 end
     end
-    
+
     corpseLastCount = count
     corpseLastLootCount = lootCount
-    
+
     if count > 0 then
         SafeNotify("Corpse ESP - " .. count .. " corpses found (" .. lootCount .. " with loot)", "Corpse ESP", 2)
     else
@@ -992,7 +1035,7 @@ local function RenderCorpseESP()
     local camera = workspace.CurrentCamera
     if not camera then return end
 
-    persistentState.corpseDistance = UI.GetValue("corpse_distance") or 1000
+    persistentState.corpseDistance = 3000
     local cameraPos = camera.Position
 
     corpseFrameCounter = corpseFrameCounter + 1
@@ -1007,7 +1050,7 @@ local function RenderCorpseESP()
     local visibleCorpses = {}
     for _, corpse in ipairs(corpseCache) do
         if not corpse.Position then continue end
-        
+
         local distance = (corpse.Position - cameraPos).Magnitude
         if distance <= persistentState.corpseDistance then
             local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
@@ -1016,6 +1059,7 @@ local function RenderCorpseESP()
                 table.insert(visibleCorpses, {
                     Text = corpse.Name .. status .. " [" .. math.floor(distance) .. "m]",
                     Position = screenPos,
+                    HasLoot = corpse.HasLoot,
                 })
             end
         end
@@ -1032,7 +1076,8 @@ local function RenderCorpseESP()
 
     for i = 1, visibleCount do
         local corpse = visibleCorpses[i]
-        corpsePool:Update(i, corpse.Position, corpse.Text, Color3.fromRGB(255, 50, 50), true)
+        local color = corpse.HasLoot and COLORS.corpseLoot or COLORS.corpse
+        corpsePool:Update(i, corpse.Position, corpse.Text, color, true)
     end
 
     for i = visibleCount + 1, #corpsePool.objects do
@@ -1109,7 +1154,7 @@ local function RenderBannerESP()
     local camera = workspace.CurrentCamera
     if not camera then return end
 
-    persistentState.bannerDistance = UI.GetValue("banner_distance") or 500
+    persistentState.bannerDistance = 3000
     local cameraPos = camera.Position
 
     bannerFrameCounter = bannerFrameCounter + 1
@@ -1146,7 +1191,7 @@ local function RenderBannerESP()
 
     for i = 1, visibleCount do
         local banner = visibleBanners[i]
-        bannerPool:Update(i, banner.Position, banner.Text, Color3.fromRGB(0, 200, 255), true)
+        bannerPool:Update(i, banner.Position, banner.Text, COLORS.banner, true)
     end
 
     for i = visibleCount + 1, #bannerPool.objects do
@@ -1260,7 +1305,7 @@ local function RenderCarESP()
     local camera = workspace.CurrentCamera
     if not camera then return end
 
-    persistentState.carDistance = UI.GetValue("car_distance") or 500
+    persistentState.carDistance = 3000
     local cameraPos = camera.Position
 
     carFrameCounter = carFrameCounter + 1
@@ -1313,7 +1358,7 @@ local function RenderCarESP()
 
     for i = 1, visibleCount do
         local car = visibleCars[i]
-        carPool:Update(i, car.Position, car.Text, Color3.fromRGB(255, 200, 50), true)
+        carPool:Update(i, car.Position, car.Text, COLORS.car, true)
     end
 
     for i = visibleCount + 1, #carPool.objects do
@@ -1338,9 +1383,9 @@ local function RefreshPlayerCache()
     local players = {}
     local camera = workspace.CurrentCamera
     if not camera then return end
-    
+
     local cameraPos = camera.Position
-    
+
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == player then continue end
         if plr.Character and plr.Character.Parent then
@@ -1355,7 +1400,7 @@ local function RefreshPlayerCache()
             end
         end
     end
-    
+
     cachedPlayers = players
     lastPlayerCacheTime = tick()
 end
@@ -1369,7 +1414,7 @@ local function CreateInspectorObjects()
     bg.Corner = 8
     bg.Visible = false
     table.insert(inspectorObjects, bg)
-    
+
     local border = Drawing.new("Square")
     border.Filled = false
     border.Color = Color3.fromRGB(255, 255, 255)
@@ -1378,7 +1423,7 @@ local function CreateInspectorObjects()
     border.Corner = 8
     border.Visible = false
     table.insert(inspectorObjects, border)
-    
+
     local title = Drawing.new("Text")
     title.Font = Drawing.Fonts.System
     title.Size = 16
@@ -1389,7 +1434,7 @@ local function CreateInspectorObjects()
     title.Text = "TARGET INSPECTOR"
     title.Visible = false
     table.insert(inspectorObjects, title)
-    
+
     for i = 1, 50 do
         local txt = Drawing.new("Text")
         txt.Font = Drawing.Fonts.System
@@ -1482,7 +1527,7 @@ local function GetTargetData(target, targetType)
         if character then
             local humanoid = character:FindFirstChild("Humanoid")
             if humanoid then info.Health = math.floor(humanoid.Health) end
-            
+
             for _, pData in ipairs(cachedPlayers) do
                 if pData.Player == plr then
                     info.Distance = math.floor(pData.Distance)
@@ -1500,7 +1545,7 @@ local function GetTargetData(target, targetType)
                 end
             end
         end
-        
+
         local playerGui = plr:FindFirstChild("PlayerGui")
         if playerGui then
             local userGui = playerGui:FindFirstChild("UserGUI")
@@ -1528,7 +1573,7 @@ local function GetTargetData(target, targetType)
                 end
             end
         end
-        
+
         if character then
             for _, child in ipairs(character:GetChildren()) do
                 local name = child.Name
@@ -1557,7 +1602,7 @@ local function GetTargetData(target, targetType)
             end
         end
         info.Backpack = cleanedBackpack
-        
+
         table.sort(info.Backpack)
         return info
 
@@ -1585,7 +1630,7 @@ local function GetTargetData(target, targetType)
                 table.insert(info.Backpack, item.name)
             end
         end
-        
+
         table.sort(info.Backpack)
         return info
     end
@@ -1601,10 +1646,10 @@ local function GetContentLines(data)
     end
 
     table.insert(lines, {text = data.Name, color = Color3.fromRGB(255, 255, 255)})
-    
+
     local label = data.Type == "Corpse" and "Loot:" or "Backpack:"
     table.insert(lines, {text = label, color = Color3.fromRGB(255, 255, 255)})
-    
+
     if #data.Backpack > 0 then
         for _, item in ipairs(data.Backpack) do
             local isEquipped = string.find(item, "%[equipped%]")
@@ -1622,44 +1667,44 @@ local function UpdateInspectorGUI(data)
         HideAllInspectorObjects()
         return
     end
-    
+
     if #inspectorObjects == 0 then
         CreateInspectorObjects()
     end
-    
+
     local viewport = workspace.CurrentCamera
     if not viewport then return end
     local viewSize = viewport.ViewportSize
     local scale = persistentState.uiScale or 1.0
-    
+
     local lines = GetContentLines(data)
-    
+
     local padding = 12 * scale
     local lineH = 18 * scale
     local titleH = 30 * scale
     local totalLines = #lines
     local panelW = 320 * scale
     local panelH = titleH + (totalLines * lineH) + padding
-    
+
     local pX = viewSize.X - panelW - 20 * scale
     local pY = (viewSize.Y / 2) - (panelH / 2)
-    
+
     local bg = inspectorObjects[1]
     bg.Size = Vector2.new(panelW, panelH)
     bg.Position = Vector2.new(pX, pY)
     bg.Visible = true
-    
+
     local border = inspectorObjects[2]
     border.Size = Vector2.new(panelW, panelH)
     border.Position = Vector2.new(pX, pY)
     border.Visible = true
-    
+
     local title = inspectorObjects[3]
     title.Position = Vector2.new(pX + padding, pY + 6 * scale)
     title.Size = 16 * scale
     title.Text = "TARGET INSPECTOR"
     title.Visible = true
-    
+
     local yOff = pY + titleH + 2 * scale
     for i, lineData in ipairs(lines) do
         local txt = inspectorObjects[3 + i]
@@ -1672,7 +1717,7 @@ local function UpdateInspectorGUI(data)
             yOff = yOff + lineH
         end
     end
-    
+
     for i = 4 + #lines, #inspectorObjects do
         if inspectorObjects[i] then
             inspectorObjects[i].Visible = false
@@ -1689,29 +1734,29 @@ local function RenderInspector()
         end
         return
     end
-    
+
     if #inspectorObjects == 0 then
         CreateInspectorObjects()
     end
-    
+
     local now = tick()
-    
+
     if now - lastPlayerCacheTime > PLAYER_CACHE_INTERVAL then
         RefreshPlayerCache()
     end
-    
+
     if now - forcedScanTimer > FORCED_SCAN_INTERVAL then
         forcedScanTimer = now
         scanRequested = true
     end
-    
+
     if scanRequested and now - lastScanTime > SCAN_INTERVAL then
         scanRequested = false
         lastScanTime = now
-        
+
         local target, targetType = GetTargetPlayer()
         local newTargetName = target and (targetType == "Player" and target.Name or target.Name) or ""
-        
+
         if newTargetName ~= currentTargetName then
             currentTargetName = newTargetName
             if target then
@@ -1776,7 +1821,7 @@ local function ResetAllToggles()
     cachedPlayers = {}
     currentTargetName = ""
     currentData = nil
-    
+
     StopModDetection()
 end
 
@@ -1796,7 +1841,7 @@ local function SetAllUITogglesFalse()
     UI.SetValue("mod_detection_enabled", false)
     UI.SetValue("mod_autoleave_enabled", false)
     UI.SetValue("mod_autoleave_delay", 1.0)
-    
+
     UI.SetValue("item_category_Equipment", false)
     UI.SetValue("item_category_Weapons", false)
     UI.SetValue("item_category_Melee", false)
@@ -1830,7 +1875,7 @@ local function RestoreUIState()
     UI.SetValue("mod_detection_enabled", persistentState.modDetectionEnabled or false)
     UI.SetValue("mod_autoleave_enabled", persistentState.autoLeaveEnabled or false)
     UI.SetValue("mod_autoleave_delay", persistentState.autoLeaveDelay or 1.0)
-    
+
     UI.SetValue("item_category_Equipment", persistentState.categoryToggles["Equipment"] or false)
     UI.SetValue("item_category_Weapons", persistentState.categoryToggles["Weapons"] or false)
     UI.SetValue("item_category_Melee", persistentState.categoryToggles["Melee"] or false)
@@ -1851,7 +1896,7 @@ local function RestoreUIState()
             toggleRefs[refName].Value = enabled
         end
     end
-    
+
     if persistentState.modDetectionEnabled then
         StartModDetection()
     end
@@ -1879,27 +1924,107 @@ UI.AddTab("Walking Dead", function(tab)
     itemRescanKeybind = MainSection:Keybind("item_rescan_kb", 0x49, "click")
     itemRescanKeybind:AddToHotkey("Rescan Item ESP", "item_esp_toggle")
 
-    MainSection:SliderInt("item_distance", "Item Distance", 10, 3000, 150, function(value)
-        persistentState.itemDistance = value
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Equipment", "Equipment", function(state)
+        persistentState.categoryToggles["Equipment"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Equipment"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_equipment_color", COLORS.itemEquipment.R, COLORS.itemEquipment.G, COLORS.itemEquipment.B, 1, function(color, alpha)
+        COLORS.itemEquipment = color
+        SaveColors(COLORS)
     end)
 
     MainSection:Spacing()
-    MainSection:Text("Item Categories:")
 
-    for _, cat in ipairs({"Equipment", "Weapons", "Melee", "Ammo", "Food", "Misc", "Keycards"}) do
-        MainSection:Toggle("item_category_" .. cat, cat, function(state)
-            persistentState.categoryToggles[cat] = state
-            for _, itemName in ipairs(ITEM_TYPES[cat] or {}) do
-                persistentState.itemToggles[itemName] = state
-            end
-            if state then
-                itemCache = {}
-                itemPool:HideAll()
+    MainSection:Toggle("item_category_Weapons", "Weapons", function(state)
+        persistentState.categoryToggles["Weapons"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Weapons"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_weapons_color", COLORS.itemWeapons.R, COLORS.itemWeapons.G, COLORS.itemWeapons.B, 1, function(color, alpha)
+        COLORS.itemWeapons = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Melee", "Melee", function(state)
+        persistentState.categoryToggles["Melee"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Melee"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_melee_color", COLORS.itemMelee.R, COLORS.itemMelee.G, COLORS.itemMelee.B, 1, function(color, alpha)
+        COLORS.itemMelee = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Ammo", "Ammo", function(state)
+        persistentState.categoryToggles["Ammo"] = state
+
+        local filterText = UI.GetValue("ammo_filter") or ""
+
+        if state then
+            if filterText == "" or filterText:lower() == "all" then
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = true
+                end
+            elseif filterText:lower() ~= "none" then
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = false
+                end
+                for word in string.gmatch(filterText, "[^,]+") do
+                    local trimmed = word:gsub("^%s*(.-)%s*$", "%1")
+                    if trimmed ~= "" then
+                        for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                            if string.lower(itemName):find(string.lower(trimmed), 1, true) then
+                                persistentState.itemToggles[itemName] = true
+                            end
+                        end
+                    end
+                end
             else
-                itemPool:HideAll()
+                for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                    persistentState.itemToggles[itemName] = false
+                end
             end
-        end)
-    end
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            for _, itemName in ipairs(ITEM_TYPES["Ammo"] or {}) do
+                persistentState.itemToggles[itemName] = false
+            end
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_ammo_color", COLORS.itemAmmo.R, COLORS.itemAmmo.G, COLORS.itemAmmo.B, 1, function(color, alpha)
+        COLORS.itemAmmo = color
+        SaveColors(COLORS)
+    end)
 
     MainSection:InputText("ammo_filter", "Filter Ammo (comma separated)", "", function(text)
         if persistentState.categoryToggles["Ammo"] then
@@ -1932,6 +2057,65 @@ UI.AddTab("Walking Dead", function(tab)
     end)
 
     MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Food", "Food", function(state)
+        persistentState.categoryToggles["Food"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Food"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_food_color", COLORS.itemFood.R, COLORS.itemFood.G, COLORS.itemFood.B, 1, function(color, alpha)
+        COLORS.itemFood = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Misc", "Misc", function(state)
+        persistentState.categoryToggles["Misc"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Misc"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_misc_color", COLORS.itemMisc.R, COLORS.itemMisc.G, COLORS.itemMisc.B, 1, function(color, alpha)
+        COLORS.itemMisc = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Keycards", "Keycards", function(state)
+        persistentState.categoryToggles["Keycards"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Keycards"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_keycards_color", COLORS.itemKeycards.R, COLORS.itemKeycards.G, COLORS.itemKeycards.B, 1, function(color, alpha)
+        COLORS.itemKeycards = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+    MainSection:Text("___________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________")
+    MainSection:Spacing()
     MainSection:Spacing()
 
     MainSection:Toggle("banner_esp_toggle", "Enable Banner ESP", function(state)
@@ -1951,10 +2135,16 @@ UI.AddTab("Walking Dead", function(tab)
     bannerRescanKeybind = MainSection:Keybind("banner_rescan_kb", 0x42, "click")
     bannerRescanKeybind:AddToHotkey("Rescan Banner ESP", "banner_esp_toggle")
 
-    MainSection:SliderInt("banner_distance", "Banner Distance", 10, 3000, 500, function(value)
-        persistentState.bannerDistance = value
+    MainSection:Spacing()
+
+    MainSection:Toggle("banner_color_toggle", "Banner Color", true)
+    MainSection:ColorPicker("banner_color", COLORS.banner.R, COLORS.banner.G, COLORS.banner.B, 1, function(color, alpha)
+        COLORS.banner = color
+        SaveColors(COLORS)
     end)
 
+    MainSection:Spacing()
+    MainSection:Text("___________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________")
     MainSection:Spacing()
     MainSection:Spacing()
 
@@ -1978,10 +2168,24 @@ UI.AddTab("Walking Dead", function(tab)
     corpseRescanKeybind = MainSection:Keybind("corpse_rescan_kb", 0x43, "click")
     corpseRescanKeybind:AddToHotkey("Rescan Corpse ESP", "corpse_esp_toggle")
 
-    MainSection:SliderInt("corpse_distance", "Corpse Distance", 10, 3000, 1000, function(value)
-        persistentState.corpseDistance = value
+    MainSection:Spacing()
+
+    MainSection:Toggle("corpse_color_toggle", "Corpse Color", true)
+    MainSection:ColorPicker("corpse_color", COLORS.corpse.R, COLORS.corpse.G, COLORS.corpse.B, 1, function(color, alpha)
+        COLORS.corpse = color
+        SaveColors(COLORS)
     end)
 
+    MainSection:Spacing()
+
+    MainSection:Toggle("corpse_loot_color_toggle", "Corpse Loot Color", true)
+    MainSection:ColorPicker("corpse_loot_color", COLORS.corpseLoot.R, COLORS.corpseLoot.G, COLORS.corpseLoot.B, 1, function(color, alpha)
+        COLORS.corpseLoot = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+    MainSection:Text("___________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________")
     MainSection:Spacing()
     MainSection:Spacing()
 
@@ -2004,8 +2208,12 @@ UI.AddTab("Walking Dead", function(tab)
     carRescanKeybind = MainSection:Keybind("car_rescan_kb", 0x56, "click")
     carRescanKeybind:AddToHotkey("Rescan Vehicle ESP", "car_esp_toggle")
 
-    MainSection:SliderInt("car_distance", "Vehicle Distance", 10, 3000, 500, function(value)
-        persistentState.carDistance = value
+    MainSection:Spacing()
+
+    MainSection:Toggle("car_color_toggle", "Vehicle Color", true)
+    MainSection:ColorPicker("car_color", COLORS.car.R, COLORS.car.G, COLORS.car.B, 1, function(color, alpha)
+        COLORS.car = color
+        SaveColors(COLORS)
     end)
 
     MainSection:Spacing()
@@ -2050,7 +2258,6 @@ UI.AddTab("Walking Dead", function(tab)
     inspectorSection:Spacing()
     inspectorSection:Spacing()
 
-    
     inspectorSection:Toggle("mod_detection_enabled", "Mod Detection", false, function(state)
         persistentState.modDetectionEnabled = state
         if state then
@@ -2096,8 +2303,6 @@ UI.AddTab("Walking Dead", function(tab)
     inspectorSection:SliderFloat("mod_autoleave_delay", "Leave Delay", 0.5, 20.0, 1.0, "%.1f", function(value)
         persistentState.autoLeaveDelay = value
     end)
-
-    inspectorSection:Spacing()
 
     local infoSection = tab:Section("Info", "Right")
 
