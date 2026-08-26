@@ -85,31 +85,6 @@ local persistentState = {
 
 local emptyScanTracker = {}
 
-local POI_LOCATIONS = {
-    ["Terminus"] = Vector3.new(1652.68, 199.18, -679.05),
-    ["PD"] = Vector3.new(3814.08, 125.18, -686.19),
-    ["Prison"] = Vector3.new(5501.63, 117.13, -2493.90),
-    ["Bunker"] = Vector3.new(5539.28, 211.88, -6108.75),
-    ["Alexandria"] = Vector3.new(71.33, 118.16, -5417.76),
-    ["Port"] = Vector3.new(-4520.35, 62.46, -5795.67),
-    ["Sanctuary"] = Vector3.new(-4425.31, 104.66, -3455.77),
-    ["Hilltop"] = Vector3.new(-4786.34, 140.93, -927.64),
-    ["Satellite Outpost"] = Vector3.new(-2196.25, 292.82, 12.23),
-    ["King County"] = Vector3.new(-4121.66, 172.43, 3599.39),
-    ["Quarry"] = Vector3.new(-5750.19, 283.56, 6282.38),
-    ["Hospital"] = Vector3.new(-1805.95, 172.30, 5577.22),
-    ["WoodBury"] = Vector3.new(4502.21, 117.22, 1183.52),
-    ["Big Spot"] = Vector3.new(2243.32, 248.34, 2089.93),
-    ["Air Strip"] = Vector3.new(3626.93, 129.94, 3917.03),
-    ["FarmHouse"] = Vector3.new(3175.00, 130.13, 4920.74)
-}
-
-local POI_NAMES = {}
-for name, _ in pairs(POI_LOCATIONS) do
-    table.insert(POI_NAMES, name)
-end
-table.sort(POI_NAMES)
-
 local character = nil
 local hrp = nil
 local itemRescanKeybind = nil
@@ -389,32 +364,6 @@ local function EnsureCharacter()
     return true
 end
 
-local function TeleportToPOI(index)
-    local name = POI_NAMES[index + 1]
-    if not name then
-        SafeNotify("Invalid POI selected!", "Teleport", 2)
-        return
-    end
-
-    local pos = POI_LOCATIONS[name]
-    if not pos then
-        SafeNotify("Position not found for " .. name, "Teleport", 2)
-        return
-    end
-
-    if not EnsureCharacter() then
-        SafeNotify("Character not found!", "Teleport", 2)
-        return
-    end
-
-    if not hrp then
-        SafeNotify("Root part not found!", "Teleport", 2)
-        return
-    end
-
-    hrp.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
-    SafeNotify("Teleported to " .. name, "Teleport", 3)
-end
 
 local ITEM_TYPES = {
     ["Weapons"] = {
@@ -2218,18 +2167,6 @@ UI.AddTab("Walking Dead", function(tab)
 
     MainSection:Spacing()
     MainSection:Spacing()
-
-    local teleportSection = tab:Section("Teleport", "Right")
-
-    teleportSection:Combo("teleport_poi", "Select Location", POI_NAMES, 0, function(index, text)
-        persistentState.selectedPOI = index
-        SafeNotify("Selected: " .. text, "Teleport", 1)
-    end)
-
-    teleportSection:Button("Teleport to Selected", function()
-        local selectedIndex = UI.GetValue("teleport_poi") or 0
-        TeleportToPOI(selectedIndex)
-    end)
 
     local inspectorSection = tab:Section("Inspectors", "Right")
 
