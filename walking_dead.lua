@@ -31,6 +31,7 @@ local function LoadSavedColors()
         itemKeycards = Color3.fromRGB(255, 215, 0),
         itemMisc = Color3.fromRGB(200, 200, 255),
         itemEquipment = Color3.fromRGB(0, 255, 200),
+        itemAccessory = Color3.fromRGB(255, 215, 0),
         corpse = Color3.fromRGB(255, 50, 50),
         corpseLoot = Color3.fromRGB(50, 255, 50),
         banner = Color3.fromRGB(0, 200, 255),
@@ -364,6 +365,18 @@ local function EnsureCharacter()
     return true
 end
 
+local ACCESSORY_NAMES = {
+    "Black Paintball Mask",
+    "Black Ski Mask",
+    "Farmer's Straw Hat",
+    "Mysterious Black Cowboy Hat",
+    "Pinstriped Fedora",
+    "Red Basic Bandana",
+    "Shield Shades",
+    "Surgical Mask",
+    "Welding Mask",
+    "White Basic Bandana",
+}
 
 local ITEM_TYPES = {
     ["Weapons"] = {
@@ -416,6 +429,7 @@ local ITEM_TYPES = {
         "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet",
         "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND",
     },
+    ["Accessory"] = ACCESSORY_NAMES,
 }
 
 local function GetModelPosition(model)
@@ -514,6 +528,8 @@ local function GetItemColor(name)
         return COLORS.itemMisc
     elseif category == "Equipment" then
         return COLORS.itemEquipment
+    elseif category == "Accessory" then
+        return COLORS.itemAccessory
     else
         return Color3.fromRGB(200, 200, 200)
     end
@@ -1798,6 +1814,7 @@ local function SetAllUITogglesFalse()
     UI.SetValue("item_category_Food", false)
     UI.SetValue("item_category_Keycards", false)
     UI.SetValue("item_category_Misc", false)
+    UI.SetValue("item_category_Accessory", false)
 
     for categoryName, categoryItems in pairs(ITEM_TYPES) do
         for _, itemName in ipairs(categoryItems) do
@@ -1832,6 +1849,7 @@ local function RestoreUIState()
     UI.SetValue("item_category_Food", persistentState.categoryToggles["Food"] or false)
     UI.SetValue("item_category_Keycards", persistentState.categoryToggles["Keycards"] or false)
     UI.SetValue("item_category_Misc", persistentState.categoryToggles["Misc"] or false)
+    UI.SetValue("item_category_Accessory", persistentState.categoryToggles["Accessory"] or false)
 
     for name, enabled in pairs(persistentState.itemToggles) do
         if toggleRefs[name] then
@@ -2059,6 +2077,25 @@ UI.AddTab("Walking Dead", function(tab)
     end)
     MainSection:ColorPicker("item_keycards_color", COLORS.itemKeycards.R, COLORS.itemKeycards.G, COLORS.itemKeycards.B, 1, function(color, alpha)
         COLORS.itemKeycards = color
+        SaveColors(COLORS)
+    end)
+
+    MainSection:Spacing()
+
+    MainSection:Toggle("item_category_Accessory", "Accessory", function(state)
+        persistentState.categoryToggles["Accessory"] = state
+        for _, itemName in ipairs(ITEM_TYPES["Accessory"] or {}) do
+            persistentState.itemToggles[itemName] = state
+        end
+        if state then
+            itemCache = {}
+            itemPool:HideAll()
+        else
+            itemPool:HideAll()
+        end
+    end)
+    MainSection:ColorPicker("item_accessory_color", COLORS.itemAccessory.R, COLORS.itemAccessory.G, COLORS.itemAccessory.B, 1, function(color, alpha)
+        COLORS.itemAccessory = color
         SaveColors(COLORS)
     end)
 
