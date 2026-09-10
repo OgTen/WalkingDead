@@ -18,6 +18,8 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
+local SCAN_RANGE = 5000
+
 local lastNotifyTime = 0
 local NOTIFY_COOLDOWN = 2.0
 local lastNotifiedSkin = nil
@@ -45,7 +47,6 @@ local DEFAULT_COLORS = {
     itemMisc = { r = 200, g = 200, b = 255 },
     itemEquipment = { r = 0, g = 255, b = 200 },
     itemAccessory = { r = 255, g = 215, b = 0 },
-    corpse = { r = 255, g = 50, b = 50 },
     corpseLoot = { r = 50, g = 255, b = 50 },
     banner = { r = 0, g = 200, b = 255 },
     car = { r = 255, g = 200, b = 50 },
@@ -106,32 +107,29 @@ local persistentState = {
     autoLeaveEnabled = false,
     autoLeaveDelay = 1.0,
     itemEspEnabled = false,
-    itemDistance = 3000,
+    itemDistance = 2500,
     itemToggles = {},
     categoryToggles = {},
+    filterWeapons = {},
+    filterMelee = {},
     filterAmmo = {},
     filterFood = {},
     filterMisc = {},
     filterKeycards = {},
+    filterEquipment = {},
     filterAccessory = {},
     corpseEspEnabled = false,
-    corpseDistance = 3000,
+    corpseDistance = 2500,
     corpseCache = {},
     corpseScanned = false,
     bannerEspEnabled = false,
-    bannerDistance = 3000,
+    bannerDistance = 2500,
     bannerCache = {},
     bannerScanned = false,
     vehicleEspEnabled = false,
-    vehicleDistance = 3000,
+    vehicleDistance = 2500,
     vehicleCache = {},
     vehicleScanned = false,
-}
-
-local ACCESSORY_NAMES = {
-    "Black Paintball Mask", "Black Ski Mask", "Farmer's Straw Hat",
-    "Mysterious Black Cowboy Hat", "Pinstriped Fedora", "Red Basic Bandana",
-    "Shield Shades", "Surgical Mask", "Welding Mask", "White Basic Bandana",
 }
 
 local ITEM_TYPES = {
@@ -141,8 +139,8 @@ local ITEM_TYPES = {
     ["Food"] = {"Apple Juice", "Biscuits", "Bottled Water", "Carbonated Water", "Chocolate Bar", "Chocolate Cookies", "Cola", "Energy Drink", "Grape Soda", "MRE", "Orange Juice", "Orange Soda", "Potato Chips", "Protein Bar", "Spicy Barbecue Chips", "Sweet Chili Chips", "Applesauce", "Baked Beans", "Beef Jerky", "Canned Peaches", "Canned Sardines", "Canned Tuna", "Chocobar", "Chocolate Spread", "Gummy Bears", "Milk", "Mixed Vegetables", "Peanut Butter", "Pork & Beans", "Salty Crackers", "Tomato Soup", "Chicken Soup", "Ham Spread"},
     ["Keycards"] = {"Bunker Access Keycard", "Prison Armory Access Keycard", "Satellite outpost Access Keycard", "Police Armory Access Keycard"},
     ["Misc"] = {"Bandage", "Improvised Bandage", "FlashLight", "Metal Parts", "Weapon Cleaning Kit", "Cloth", "Rag", "Stick", "IFAK", "First Aid Kit", "Disinfected Bandage", "Disinfectant", "Jerry Can"},
-    ["Equipment"] = {"MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "Firefighter Helmet", "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest", "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier", "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest", "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet", "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND"},
-    ["Accessory"] = ACCESSORY_NAMES,
+    ["Equipment"] = {"MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "FAST Helmet", "Firefighter Helmet", "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest", "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier", "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest", "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet", "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND"},
+    ["Accessory"] = {"Black Paintball Mask", "Black Ski Mask", "Farmer's Straw Hat", "Mysterious Black Cowboy Hat", "Pinstriped Fedora", "Red Basic Bandana", "Shield Shades", "Surgical Mask", "Welding Mask", "White Basic Bandana"},
 }
 
 local function GetModelPosition(model)
@@ -367,7 +365,7 @@ local function ScanAllItems()
                     
                     if showItem then
                         local itemPos = GetContainerPosition(child)
-                        if itemPos and (itemPos - cameraPos).Magnitude <= persistentState.itemDistance then
+                        if itemPos and (itemPos - cameraPos).Magnitude <= SCAN_RANGE then
                             table.insert(foundItems, {
                                 Name = name,
                                 Position = itemPos,
@@ -416,7 +414,7 @@ local function ScanAllItems()
                     
                     if showItem then
                         local itemPos = GetContainerPosition(child)
-                        if itemPos and (itemPos - cameraPos).Magnitude <= persistentState.itemDistance then
+                        if itemPos and (itemPos - cameraPos).Magnitude <= SCAN_RANGE then
                             table.insert(foundItems, {
                                 Name = name,
                                 Position = itemPos,
@@ -462,7 +460,7 @@ local function ScanAllItems()
             
             if showItem then
                 local itemPos = GetModelPosition(item)
-                if itemPos and (itemPos - cameraPos).Magnitude <= persistentState.itemDistance then
+                if itemPos and (itemPos - cameraPos).Magnitude <= SCAN_RANGE then
                     table.insert(foundItems, {
                         Name = itemName,
                         Position = itemPos,
@@ -685,15 +683,14 @@ local function RenderCorpseESP()
 
     for _, corpse in ipairs(corpseCache) do
         if not corpse.Position then continue end
+        if not corpse.HasLoot then continue end
         local distance = (corpse.Position - cameraPos).Magnitude
         if distance <= persistentState.corpseDistance then
             local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
             if onScreen then
-                local status = corpse.HasLoot and " [LOOT]" or ""
                 table.insert(visibleCorpses, {
-                    Text = corpse.Name .. status .. " [" .. math.floor(distance) .. "m]",
+                    Text = corpse.Name .. " [LOOT] [" .. math.floor(distance) .. "m]",
                     Position = screenPos,
-                    HasLoot = corpse.HasLoot,
                 })
             end
         end
@@ -708,8 +705,7 @@ local function RenderCorpseESP()
     corpsePool:Ensure(visibleCount)
     for i = 1, visibleCount do
         local corpse = visibleCorpses[i]
-        local color = corpse.HasLoot and GetColor3("corpseLoot") or GetColor3("corpse")
-        corpsePool:Update(i, corpse.Position, corpse.Text, color, true)
+        corpsePool:Update(i, corpse.Position, corpse.Text, GetColor3("corpseLoot"), true)
     end
     for i = visibleCount + 1, #corpsePool.objects do
         corpsePool:SetVisible(i, false)
@@ -1238,7 +1234,7 @@ end
 
 local function GetCorpseLoot(corpse)
     for _, cached in ipairs(corpseCache) do
-        if cached.Name == corpse.Name then
+        if cached == corpse then
             local coloredItems = {}
             for _, item in ipairs(cached.LootItems or {}) do
                 local color = GetItemColor(item)
@@ -1572,6 +1568,10 @@ local espTab = win:Tab("ESP", "eye")
 
 local itemSection = espTab:Section("Item ESP", "Left")
 
+itemSection:Slider("Item Render Distance", persistentState.itemDistance, 100, 0, 5000, "m", function(value)
+    persistentState.itemDistance = value
+end)
+
 local itemToggle = itemSection:Toggle("Enable Item ESP", false, function(state)
     persistentState.itemEspEnabled = state
     if state then
@@ -1595,7 +1595,9 @@ itemToggle:AddKeybind("I", "Click", function()
     end
 end)
 
-local categories = {"Equipment", "Weapons", "Melee", "Ammo", "Food", "Misc", "Keycards", "Accessory"}
+local filterDropdowns = {}
+
+local categories = {"Weapons", "Melee", "Equipment", "Ammo", "Food", "Misc", "Keycards", "Accessory"}
 local categoryKeys = {
     Equipment = "itemEquipment",
     Weapons = "itemWeapons",
@@ -1632,20 +1634,10 @@ for _, cat in ipairs(categories) do
         SaveColors()
         LoadColors()
     end)
-end
-
-local filterSection = espTab:Section("Filters", "Left")
-
-local filterDropdowns = {}
-
-local filterCategories = {"Ammo", "Food", "Misc", "Keycards", "Accessory"}
-
-for _, cat in ipairs(filterCategories) do
-    local filterKey = "filter" .. cat
-    local filterLabel = cat .. " Filter"
     
-    local dropdown = filterSection:Dropdown(
-        filterLabel,
+    local filterKey = "filter" .. cat
+    local dropdown = itemSection:Dropdown(
+        cat .. " Filter",
         {},
         function()
             return ITEM_TYPES[cat] or {}
@@ -1661,11 +1653,14 @@ for _, cat in ipairs(filterCategories) do
     filterDropdowns[cat] = dropdown
 end
 
-filterSection:Button("Clear All Filters", function()
+itemSection:Button("Clear All Filters", function()
+    persistentState.filterWeapons = {}
+    persistentState.filterMelee = {}
     persistentState.filterAmmo = {}
     persistentState.filterFood = {}
     persistentState.filterMisc = {}
     persistentState.filterKeycards = {}
+    persistentState.filterEquipment = {}
     persistentState.filterAccessory = {}
     
     for cat, dropdown in pairs(filterDropdowns) do
@@ -1676,6 +1671,10 @@ filterSection:Button("Clear All Filters", function()
 end)
 
 local corpseSection = espTab:Section("Corpse ESP", "Right")
+
+corpseSection:Slider("Corpse Render Distance", persistentState.corpseDistance, 100, 0, 5000, "m", function(value)
+    persistentState.corpseDistance = value
+end)
 
 local corpseToggle = corpseSection:Toggle("Enable Corpse ESP", false, function(state)
     persistentState.corpseEspEnabled = state
@@ -1706,21 +1705,8 @@ corpseToggle:AddKeybind("C", "Click", function()
     end
 end)
 
-local corpseColor = COLORS["corpse"] or { r = 255, g = 50, b = 50 }
-local corpseColorToggle = corpseSection:Toggle("Corpse Color", true)
-corpseColorToggle:AddColorpicker("Corpse Color", Color3.fromRGB(corpseColor.r, corpseColor.g, corpseColor.b), function(newColor, alpha)
-    COLORS["corpse"] = { 
-        r = math.floor(newColor.R * 255), 
-        g = math.floor(newColor.G * 255), 
-        b = math.floor(newColor.B * 255) 
-    }
-    SaveColors()
-    LoadColors()
-end)
-
 local corpseLootColor = COLORS["corpseLoot"] or { r = 50, g = 255, b = 50 }
-local corpseLootToggle = corpseSection:Toggle("Corpse Loot Color", true)
-corpseLootToggle:AddColorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b), function(newColor, alpha)
+corpseSection:Colorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b), function(newColor, alpha)
     COLORS["corpseLoot"] = { 
         r = math.floor(newColor.R * 255), 
         g = math.floor(newColor.G * 255), 
@@ -1731,6 +1717,10 @@ corpseLootToggle:AddColorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootCo
 end)
 
 local bannerSection = espTab:Section("Banner ESP", "Right")
+
+bannerSection:Slider("Banner Render Distance", persistentState.bannerDistance, 100, 0, 5000, "m", function(value)
+    persistentState.bannerDistance = value
+end)
 
 local bannerToggle = bannerSection:Toggle("Enable Banner ESP", false, function(state)
     persistentState.bannerEspEnabled = state
@@ -1771,6 +1761,10 @@ bannerColorToggle:AddColorpicker("Banner Color", Color3.fromRGB(bannerColor.r, b
 end)
 
 local vehicleSection = espTab:Section("Vehicle ESP", "Right")
+
+vehicleSection:Slider("Vehicle Render Distance", persistentState.vehicleDistance, 100, 0, 5000, "m", function(value)
+    persistentState.vehicleDistance = value
+end)
 
 local vehicleToggle = vehicleSection:Toggle("Enable Vehicle ESP", false, function(state)
     persistentState.vehicleEspEnabled = state
