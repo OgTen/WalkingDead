@@ -50,6 +50,7 @@ local DEFAULT_COLORS = {
     corpseLoot = { r = 50, g = 255, b = 50 },
     banner = { r = 0, g = 200, b = 255 },
     car = { r = 255, g = 200, b = 50 },
+    privateStorage = { r = 255, g = 120, b = 120 },
 }
 
 local COLORS = {}
@@ -130,6 +131,10 @@ local persistentState = {
     vehicleDistance = 2500,
     vehicleCache = {},
     vehicleScanned = false,
+    privateStorageEspEnabled = false,
+    privateStorageDistance = 2500,
+    privateStorageCache = {},
+    privateStorageScanned = false,
 }
 
 local ITEM_TYPES = {
@@ -137,7 +142,7 @@ local ITEM_TYPES = {
     ["Melee"] = {"Battle Hammer", "Mace", "Shiv", "Spiked Bat", "Wooden Bat", "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit", "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver", "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife", "Shovel", "Breaching Hammer", "Ice Pick", "Taiga Machete", "Felling Axe", "Military Machete"},
     ["Ammo"] = {".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG", "5.45x39mm", "5.56x45mm", "5.7x28mm", "7.62x39mm", "7.62x51mm", "7.62x54mmR", "7.92x57mm", "9x19mm", "9x39mm", "USP .45"},
     ["Food"] = {"Apple Juice", "Biscuits", "Bottled Water", "Carbonated Water", "Chocolate Bar", "Chocolate Cookies", "Cola", "Energy Drink", "Grape Soda", "MRE", "Orange Juice", "Orange Soda", "Potato Chips", "Protein Bar", "Spicy Barbecue Chips", "Sweet Chili Chips", "Applesauce", "Baked Beans", "Beef Jerky", "Canned Peaches", "Canned Sardines", "Canned Tuna", "Chocobar", "Chocolate Spread", "Gummy Bears", "Milk", "Mixed Vegetables", "Peanut Butter", "Pork & Beans", "Salty Crackers", "Tomato Soup", "Chicken Soup", "Ham Spread"},
-    ["Keycards"] = {"Bunker Access Keycard", "Prison Armory Access Keycard", "Satellite outpost Access Keycard", "Police Armory Access Keycard"},
+    ["Keycards"] = {"Bunker Access Armory Access Keycard", "Prison Armory Access Keycard", "Satellite outpost Access Keycard", "Police Armory Access Keycard"},
     ["Misc"] = {"Bandage", "Improvised Bandage", "FlashLight", "Metal Parts", "Weapon Cleaning Kit", "Cloth", "Rag", "Stick", "IFAK", "First Aid Kit", "Disinfected Bandage", "Disinfectant", "Jerry Can"},
     ["Equipment"] = {"MICH Ballistic Helmet", "Motorcycle Helmet", "M1 Helmet", "FAST Helmet", "Firefighter Helmet", "Basic NVGs", "Headlamp", "U.S. National Guard Plate Carrier", "Medic Vest", "K9 Vest", "Firefighter Vest", "VestBrownBlueShirt", "Plate Carrier", "Military Backpack", "Green School Backpack", "Black School Backpack", "Brown Traveler's Backpack", "Police Vest", "Tactical Vest", "Tactical Backpack", "Brown Canvas Backpack", "Military Duffel Bag", "Knight's Chestplate", "Knight's Helmet", "Pinestriped Fedora", "Skate Helmet", "ATE Gen 3 Ballistic Helmet", "Ballistic Helmet", "ATE Gen 2 Ballistic Helmet", "BLACK OPS Helmet", "MOLLE Plate Carrier", "Tactical Plate Carrier", "KORUND"},
     ["Accessory"] = {"Black Paintball Mask", "Black Ski Mask", "Farmer's Straw Hat", "Mysterious Black Cowboy Hat", "Pinstriped Fedora", "Red Basic Bandana", "Shield Shades", "Surgical Mask", "Welding Mask", "White Basic Bandana"},
@@ -922,6 +927,112 @@ local function RenderVehicleESP()
     end
     for i = visibleCount + 1, #vehiclePool.objects do
         vehiclePool:SetVisible(i, false)
+    end
+end
+
+local storagePool = DrawingPool.new(20)
+local privateStorageCache = {}
+local privateStorageScanned = false
+local privateStorageLastCount = -1
+
+local STORAGE_TARGET_FOLDERS = {
+    StorageBoxes      = true,
+    StorageBoxesSmall = true,
+}
+local STORAGE_CHILD_NAME = "Interact_PlayerStorage"
+
+local function ScanAllPrivateStorage()
+    local found = {}
+    
+    local ok, children = pcall(function() return Workspace:GetChildren() end)
+    if not ok or not children then return found end
+    
+    for _, child in ipairs(children) do
+        local nameOk, name = pcall(function() return child.Name end)
+        if nameOk and STORAGE_TARGET_FOLDERS[name] then
+            local ok2, kids = pcall(function() return child:GetChildren() end)
+            if ok2 and kids then
+                for _, kid in ipairs(kids) do
+                    local kidNameOk, kidName = pcall(function() return kid.Name end)
+                    if kidNameOk and kidName == STORAGE_CHILD_NAME then
+                        local isPart = pcall(function() return kid:IsA("BasePart") end)
+                        if isPart then
+                            local posOk, pos = pcall(function() return kid.Position end)
+                            if posOk and pos and pos.Magnitude > 0 then
+                                table.insert(found, {
+                                    Name = "Private Storage",
+                                    Position = pos,
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return found
+end
+
+local function PerformPrivateStorageScan()
+    privateStorageCache = ScanAllPrivateStorage()
+    privateStorageScanned = true
+    privateStorageLastCount = #privateStorageCache
+    
+    if privateStorageLastCount > 0 then
+        SafeNotify("Private Storage ESP - " .. privateStorageLastCount .. " found", "Private Storage ESP", 2)
+    else
+        SafeNotify("Private Storage ESP - None found", "Private Storage ESP", 2)
+    end
+end
+
+local function RenderPrivateStorageESP()
+    if not persistentState.privateStorageEspEnabled then
+        storagePool:HideAll()
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        return
+    end
+
+    if not privateStorageScanned or #privateStorageCache == 0 then
+        storagePool:HideAll()
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    local cameraPos = camera.Position
+    local visibleStorage = {}
+
+    for _, entry in ipairs(privateStorageCache) do
+        local distance = (entry.Position - cameraPos).Magnitude
+        if distance <= persistentState.privateStorageDistance then
+            local screenPos, onScreen = WorldToScreen(entry.Position + Vector3.new(0, 1, 0))
+            if onScreen then
+                table.insert(visibleStorage, {
+                    Text = entry.Name .. " [" .. math.floor(distance) .. "m]",
+                    Position = screenPos,
+                    Color = GetColor3("privateStorage"),
+                })
+            end
+        end
+    end
+
+    local visibleCount = #visibleStorage
+    if visibleCount == 0 then
+        storagePool:HideAll()
+        return
+    end
+
+    storagePool:Ensure(visibleCount)
+    for i = 1, visibleCount do
+        local entry = visibleStorage[i]
+        storagePool:Update(i, entry.Position, entry.Text, entry.Color, true)
+    end
+    for i = visibleCount + 1, #storagePool.objects do
+        storagePool:SetVisible(i, false)
     end
 end
 
@@ -1804,6 +1915,49 @@ vehicleColorToggle:AddColorpicker("Vehicle Color", Color3.fromRGB(vehicleColor.r
     LoadColors()
 end)
 
+local privateStorageSection = espTab:Section("Private Storage", "Right")
+
+privateStorageSection:Slider("Storage Render Distance", persistentState.privateStorageDistance, 100, 0, 5000, "m", function(value)
+    persistentState.privateStorageDistance = value
+end)
+
+local privateStorageToggle = privateStorageSection:Toggle("Enable Private Storage", false, function(state)
+    persistentState.privateStorageEspEnabled = state
+    if state then
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        PerformPrivateStorageScan()
+    else
+        storagePool:HideAll()
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        SafeNotify("Private Storage disabled", "Private Storage ESP", 2)
+    end
+end)
+privateStorageToggle:AddKeybind("P", "Click", function()
+    if persistentState.privateStorageEspEnabled then
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        PerformPrivateStorageScan()
+    else
+        SafeNotify("Private Storage ESP is disabled. Enable it first.", "Private Storage ESP", 2)
+    end
+end)
+
+local privateStorageColor = COLORS["privateStorage"] or { r = 255, g = 120, b = 120 }
+privateStorageSection:Colorpicker("Private Storage Color", Color3.fromRGB(privateStorageColor.r, privateStorageColor.g, privateStorageColor.b), function(newColor, alpha)
+    COLORS["privateStorage"] = { 
+        r = math.floor(newColor.R * 255), 
+        g = math.floor(newColor.G * 255), 
+        b = math.floor(newColor.B * 255) 
+    }
+    SaveColors()
+    LoadColors()
+end)
+
 local inspectorsTab = win:Tab("Inspectors", "search")
 
 local inspectorMain = inspectorsTab:Section("Target Inspector", "Left")
@@ -1901,6 +2055,7 @@ RunService.RenderStepped:Connect(function()
     RenderCorpseESP()
     RenderBannerESP()
     RenderVehicleESP()
+    RenderPrivateStorageESP()
     RenderInspector()
 end)
 
