@@ -50,6 +50,7 @@ local DEFAULT_COLORS = {
     corpseLoot = { r = 50, g = 255, b = 50 },
     banner = { r = 0, g = 200, b = 255 },
     car = { r = 255, g = 200, b = 50 },
+    privateStorage = { r = 255, g = 100, b = 255 },
 }
 
 local COLORS = {}
@@ -130,10 +131,13 @@ local persistentState = {
     vehicleDistance = 2500,
     vehicleCache = {},
     vehicleScanned = false,
+    privateStorageEspEnabled = false,
+    privateStorageDistance = 2500,
+    privateStorageCache = {},
+    privateStorageScanned = false,
 }
 
 local ITEM_TYPES = {
-    ["Weapons"] = {"AR15", "AK47", "SCAR H", "MP5", "Remington 870", "SKS", "VSS", "AS VAL", "FN FAL", "M110", "MK14", "M14", "M9", "UMP", "UMP45", "MP5K", "Glock17", "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal", "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E", "M40", "VSS Vintorez", "Mk 2 Grenade", "M67 Grenade", "M18 Smoke Grenade", "SPAS-12", "M16", "Ruger 10/22", "RPK"},
     ["Weapons"] = {"AR15", "AK47", "SCAR H", "MP5", "Remington 870", "SKS", "SVD", "FN FAL", "Glock17", "M1911", "Colt Python", "BerretaM9", "Kar98K", "M1917", "M82A1", "FN Fal", "HK UMP-45", "AKS-74U", "Desert Eagle", "FN Five-seveN", "Model77E", "M40", "VSS Vintorez", "Mk 2 Grenade", "M67 Grenade", "M18 Smoke Grenade", "SPAS-12", "M16", "Ruger 10/22", "RPK"},
     ["Melee"] = {"Battle Hammer", "Mace", "Shiv", "Spiked Bat", "Wooden Bat", "Crowbar", "Fire Axe", "Hatchet", "Machete", "karambit", "Pipe Wrench", "Claw Hammer", "Pickaxe", "KA-BAR", "Cleaver", "Combat Knife", "Hammer", "Nightstick", "Hunting Knife", "Tactical knife", "Shovel", "Breaching Hammer", "Ice Pick", "Taiga Machete", "Felling Axe", "Military Machete"},
     ["Ammo"] = {".12 Gauge", ".22LR", ".357 Magnum", ".45 ACP", ".50 BMG", "5.45x39mm", "5.56x45mm", "5.7x28mm", "7.62x39mm", "7.62x51mm", "7.62x54mmR", "7.92x57mm", "9x19mm", "9x39mm", "USP .45"},
@@ -926,6 +930,99 @@ local function RenderVehicleESP()
     end
 end
 
+local privateStoragePool = DrawingPool.new(20)
+local privateStorageCache = {}
+local privateStorageScanned = false
+local privateStorageLastCount = -1
+
+local STORAGE_FOLDER_NAMES = {["StorageBoxes"] = true, ["StorageBoxesSmall"] = true}
+local STORAGE_CHILD_NAME = "Interact_PlayerStorage"
+
+local function ScanAllPrivateStorages()
+    local found = {}
+
+    local topLevel = Workspace:GetChildren()
+
+    for _, child in ipairs(topLevel) do
+        local childName = child.Name
+        if STORAGE_FOLDER_NAMES[childName] then            local kids = child:GetChildren()
+            for _, kid in ipairs(kids) do
+                if kid.Name == STORAGE_CHILD_NAME and kid:IsA("BasePart") then
+                    local pos = kid.Position
+                    if pos and pos.Magnitude > 0 then
+                        table.insert(found, {
+                            Name = "Private Storage",
+                            Position = pos,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    return found
+end
+
+local function PerformPrivateStorageScan()
+    privateStorageCache = ScanAllPrivateStorages()
+    privateStorageScanned = true
+    privateStorageLastCount = #privateStorageCache
+    if privateStorageLastCount > 0 then
+        SafeNotify("Private Storage ESP - " .. privateStorageLastCount .. " found", "Private Storage ESP", 2)
+    else
+        SafeNotify("Private Storage ESP - None found", "Private Storage ESP", 2)
+    end
+end
+
+local function RenderPrivateStorageESP()
+    if not persistentState.privateStorageEspEnabled then
+        privateStoragePool:HideAll()
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        return
+    end
+
+    if not privateStorageScanned or #privateStorageCache == 0 then
+        privateStoragePool:HideAll()
+        return
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    local cameraPos = camera.Position
+    local visibleStorages = {}
+
+    for _, storage in ipairs(privateStorageCache) do
+        local distance = (storage.Position - cameraPos).Magnitude
+        if distance <= persistentState.privateStorageDistance then
+            local screenPos, onScreen = WorldToScreen(storage.Position + Vector3.new(0, 1.5, 0))
+            if onScreen then
+                table.insert(visibleStorages, {
+                    Text = storage.Name .. " [" .. math.floor(distance) .. "m]",
+                    Position = screenPos,
+                })
+            end
+        end
+    end
+
+    local visibleCount = #visibleStorages
+    if visibleCount == 0 then
+        privateStoragePool:HideAll()
+        return
+    end
+
+    privateStoragePool:Ensure(visibleCount)
+    for i = 1, visibleCount do
+        local storage = visibleStorages[i]
+        privateStoragePool:Update(i, storage.Position, storage.Text, GetColor3("privateStorage"), true)
+    end
+    for i = visibleCount + 1, #privateStoragePool.objects do
+        privateStoragePool:SetVisible(i, false)
+    end
+end
+
 local MOD_LIST_RAW = {
     "kiidragnos", "supply_runner", "bikerr_r", "jasper155555",
     "fadextoxmyst", "skaflora", "haticeoyung", "etwanrosa2point0",
@@ -1146,15 +1243,11 @@ end
 local inspectorObjects = {}
 local currentTargetName = ""
 local currentData = nil
-local lastScanTime = 0
-local SCAN_INTERVAL = 0.5
-local scanRequested = false
-local forcedScanTimer = 0
-local FORCED_SCAN_INTERVAL = 0.5
-
+local currentSignature = ""
 local cachedPlayers = {}
 local lastPlayerCacheTime = 0
 local PLAYER_CACHE_INTERVAL = 1.0
+local inspectorVisible = false
 
 local function RefreshPlayerCache()
     local players = {}
@@ -1231,6 +1324,7 @@ local function HideAllInspectorObjects()
             obj.Visible = false
         end
     end
+    inspectorVisible = false
 end
 
 local function GetCorpseLoot(corpse)
@@ -1502,11 +1596,13 @@ local function UpdateInspectorGUI(data)
             inspectorObjects[i].Visible = false
         end
     end
+
+    inspectorVisible = true
 end
 
-local function RenderInspector()
+local function CheckInspectorTarget()
     if not persistentState.inspectorEnabled then
-        if #inspectorObjects > 0 then
+        if inspectorVisible then
             HideAllInspectorObjects()
         end
         return
@@ -1522,29 +1618,43 @@ local function RenderInspector()
         RefreshPlayerCache()
     end
 
-    if now - forcedScanTimer > FORCED_SCAN_INTERVAL then
-        forcedScanTimer = now
-        scanRequested = true
+    local target, targetType = GetTargetPlayer()
+    local newTargetName = target and (targetType == "Player" and target.Name or target.Name) or ""
+
+    if newTargetName ~= currentTargetName then
+        currentTargetName = newTargetName
+        currentSignature = ""
+
+        if target then
+            local data = GetTargetData(target, targetType)
+            if data then
+                currentData = data
+                UpdateInspectorGUI(data)
+            end
+        else
+            currentData = nil
+            HideAllInspectorObjects()
+        end
+        return
     end
 
-    if scanRequested and now - lastScanTime > SCAN_INTERVAL then
-        scanRequested = false
-        lastScanTime = now
-
-        local target, targetType = GetTargetPlayer()
-        local newTargetName = target and (targetType == "Player" and target.Name or target.Name) or ""
-
-        if newTargetName ~= currentTargetName then
-            currentTargetName = newTargetName
-            if target then
-                local data = GetTargetData(target, targetType)
-                if data then
-                    currentData = data
-                    UpdateInspectorGUI(data)
+    if target then
+        local sig = target.Name
+        if targetType == "Player" then
+            local backpack = target:FindFirstChild("Backpack")
+            if backpack then
+                for _, item in ipairs(backpack:GetChildren()) do
+                    sig = sig .. "|" .. item.Name
                 end
-            else
-                currentData = nil
-                HideAllInspectorObjects()
+            end
+        end
+
+        if sig ~= currentSignature then
+            currentSignature = sig
+            local data = GetTargetData(target, targetType)
+            if data then
+                currentData = data
+                UpdateInspectorGUI(data)
             end
         end
     end
@@ -1707,7 +1817,7 @@ corpseToggle:AddKeybind("C", "Click", function()
 end)
 
 local corpseLootColor = COLORS["corpseLoot"] or { r = 50, g = 255, b = 50 }
-corpseSection:Colorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b), function(newColor, alpha)
+corpseToggle:AddColorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b), function(newColor, alpha)
     COLORS["corpseLoot"] = { 
         r = math.floor(newColor.R * 255), 
         g = math.floor(newColor.G * 255), 
@@ -1750,8 +1860,7 @@ bannerToggle:AddKeybind("B", "Click", function()
 end)
 
 local bannerColor = COLORS["banner"] or { r = 0, g = 200, b = 255 }
-local bannerColorToggle = bannerSection:Toggle("Banner Color", true)
-bannerColorToggle:AddColorpicker("Banner Color", Color3.fromRGB(bannerColor.r, bannerColor.g, bannerColor.b), function(newColor, alpha)
+bannerToggle:AddColorpicker("Banner Color", Color3.fromRGB(bannerColor.r, bannerColor.g, bannerColor.b), function(newColor, alpha)
     COLORS["banner"] = { 
         r = math.floor(newColor.R * 255), 
         g = math.floor(newColor.G * 255), 
@@ -1794,9 +1903,51 @@ vehicleToggle:AddKeybind("V", "Click", function()
 end)
 
 local vehicleColor = COLORS["car"] or { r = 255, g = 200, b = 50 }
-local vehicleColorToggle = vehicleSection:Toggle("Vehicle Color", true)
-vehicleColorToggle:AddColorpicker("Vehicle Color", Color3.fromRGB(vehicleColor.r, vehicleColor.g, vehicleColor.b), function(newColor, alpha)
+vehicleToggle:AddColorpicker("Vehicle Color", Color3.fromRGB(vehicleColor.r, vehicleColor.g, vehicleColor.b), function(newColor, alpha)
     COLORS["car"] = { 
+        r = math.floor(newColor.R * 255), 
+        g = math.floor(newColor.G * 255), 
+        b = math.floor(newColor.B * 255) 
+    }
+    SaveColors()
+    LoadColors()
+end)
+
+local privateStorageSection = espTab:Section("Private Storage ESP", "Right")
+
+privateStorageSection:Slider("Private Storage Render Distance", persistentState.privateStorageDistance, 100, 0, 5000, "m", function(value)
+    persistentState.privateStorageDistance = value
+end)
+
+local privateStorageToggle = privateStorageSection:Toggle("Enable Private Storage ESP", false, function(state)
+    persistentState.privateStorageEspEnabled = state
+    if state then
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        PerformPrivateStorageScan()
+    else
+        privateStoragePool:HideAll()
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        SafeNotify("Private Storage ESP disabled", "Private Storage ESP", 2)
+    end
+end)
+privateStorageToggle:AddKeybind("P", "Click", function()
+    if persistentState.privateStorageEspEnabled then
+        privateStorageCache = {}
+        privateStorageScanned = false
+        privateStorageLastCount = -1
+        PerformPrivateStorageScan()
+    else
+        SafeNotify("Private Storage ESP is disabled. Enable it first.", "Private Storage ESP", 2)
+    end
+end)
+
+local privateStorageColor = COLORS["privateStorage"] or { r = 255, g = 100, b = 255 }
+privateStorageToggle:AddColorpicker("Private Storage Color", Color3.fromRGB(privateStorageColor.r, privateStorageColor.g, privateStorageColor.b), function(newColor, alpha)
+    COLORS["privateStorage"] = { 
         r = math.floor(newColor.R * 255), 
         g = math.floor(newColor.G * 255), 
         b = math.floor(newColor.B * 255) 
@@ -1813,9 +1964,10 @@ inspectorMain:Toggle("Enable Inspector", false, function(state)
     if state then
         currentTargetName = ""
         currentData = nil
-        scanRequested = true
+        currentSignature = ""
         RefreshPlayerCache()
         HideAllInspectorObjects()
+        CheckInspectorTarget()
         SafeNotify("Target Inspector enabled", nil, 2)
     else
         HideAllInspectorObjects()
@@ -1881,18 +2033,30 @@ modMain:Slider("Leave Delay", persistentState.autoLeaveDelay, 0.5, 0.5, 20.0, "s
     persistentState.autoLeaveDelay = value
 end)
 
+local lastMouseCheck = 0
+local MOUSE_CHECK_INTERVAL = 0.1
+
 UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        if persistentState.inspectorEnabled then
-            scanRequested = true
+    if not persistentState.inspectorEnabled then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local now = tick()
+        if now - lastMouseCheck > MOUSE_CHECK_INTERVAL then
+            lastMouseCheck = now
+            CheckInspectorTarget()
         end
     end
 end)
 
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+task.spawn(function()
+    while true do
+        task.wait(1)
         if persistentState.inspectorEnabled then
-            scanRequested = true
+            local now = tick()
+            if now - lastMouseCheck > 1.0 then
+                lastMouseCheck = now
+                CheckInspectorTarget()
+            end
         end
     end
 end)
@@ -1902,7 +2066,7 @@ RunService.RenderStepped:Connect(function()
     RenderCorpseESP()
     RenderBannerESP()
     RenderVehicleESP()
-    RenderInspector()
+    RenderPrivateStorageESP()
 end)
 
 SafeNotify("Rick Said Its Loaded", "Walking Dead", 3)
