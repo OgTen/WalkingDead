@@ -1746,7 +1746,7 @@ local win = Lib:CreateWindow({
     LogoSize = 38,
     ShowGameName = true,
 
-    Theme = "Deep Ocean",
+    Theme = "Obsidian",
     Background = "Aurora",
 
     Splash = {
