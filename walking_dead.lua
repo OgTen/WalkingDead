@@ -1747,7 +1747,7 @@ local win = Lib:CreateWindow({
     ShowGameName = true,
 
     Theme = "Obsidian",
-    Background = "Aurora",
+    Background = "Snow",
 
     Splash = {
         Title = "Walking Dead",
