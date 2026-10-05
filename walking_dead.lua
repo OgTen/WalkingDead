@@ -1,8 +1,30 @@
-local Lib = loadstring(game:HttpGet("https://raw.githubusercontent.com/neaxusxgod-png/INS-ui/main/uilib.min.lua"))() or INSUI
-if not Lib then
-    print("Failed to load INS-ui library")
+local _nexaSource = game:HttpGet("https://raw.githubusercontent.com/OgTen/Nexa-UI/refs/heads/main/nexa-ui.lua")
+local _nexaChunk, _nexaCompileError = loadstring(_nexaSource, "Nexa")
+if not _nexaChunk then
+    warn("[Walking Dead] Nexa compile failed: " .. tostring(_nexaCompileError))
     return
 end
+
+_nexaChunk()
+
+local Lib
+if type(getgenv) == "function" then
+    local env = getgenv()
+    Lib = env.Nexa or env.DrawingUI or env.UI
+end
+if type(Lib) ~= "table" and type(shared) == "table" then
+    Lib = shared.Nexa or shared.DrawingUI or shared.UI
+end
+if type(Lib) ~= "table" and type(Nexa) == "table" then Lib = Nexa end
+if type(Lib) ~= "table" and type(DrawingUI) == "table" then Lib = DrawingUI end
+if type(Lib) ~= "table" and type(UI) == "table" then Lib = UI end
+
+if type(Lib) ~= "table" or type(Lib.CreateWindow) ~= "function" then
+    warn("[Walking Dead] Nexa loaded, but its Library API was not exported.")
+    return
+end
+
+local RICK_LOGO = "https://i.ibb.co/xty8DqSq/rick-rick-grimes.png"
 
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -292,10 +314,19 @@ task.spawn(function()
     resetToDefaults()
 end)
 
-local modViewerBox = Lib:CreateBox({
-    title = "Mod Viewer",
-    position = Vector2.new(24, 340),
-    width = 200,
+local modViewerBox = Lib:CreateOverlay({
+    Title = "Mod Viewer",
+    X = 24,
+    Y = 340,
+    Width = 150,
+    DynamicWidth = "expand",
+    DynamicHeight = true,
+    Visible = false,
+    Font = "SystemBold",
+    FontSize = 13,
+    HeaderSize = 12,
+    LineSpacing = 2,
+    LineHeight = 18,
 })
 modViewerBox:SetVisible(false)
 
@@ -349,7 +380,6 @@ local function SafeNotify(message, title, duration)
     pcall(notify, message, title or "Walking Dead", duration or 2)
 end
 
-local COLORS_FILE = "walking_dead_colors.json"
 local DEFAULT_COLORS = {
     itemWeapons = { r = 255, g = 200, b = 100 },
     itemMelee = { r = 255, g = 150, b = 50 },
@@ -364,34 +394,10 @@ local DEFAULT_COLORS = {
     car = { r = 255, g = 200, b = 50 },
     privateStorage = { r = 255, g = 120, b = 120 },
 }
+
 local COLORS = {}
-
-local function LoadColors()
-    for key, color in pairs(DEFAULT_COLORS) do
-        COLORS[key] = { r = color.r, g = color.g, b = color.b }
-    end
-    local success, data = pcall(function()
-        if isfile and isfile(COLORS_FILE) then return readfile(COLORS_FILE) end
-        return nil
-    end)
-    if success and data then
-        local parsed = HttpService:JSONDecode(data)
-        if parsed then
-            for key, value in pairs(parsed) do
-                if value and value.r and value.g and value.b then
-                    COLORS[key] = { r = value.r, g = value.g, b = value.b }
-                end
-            end
-        end
-    end
-end
-
-local function SaveColors()
-    pcall(function()
-        if writefile then
-            writefile(COLORS_FILE, HttpService:JSONEncode(COLORS))
-        end
-    end)
+for key, color in pairs(DEFAULT_COLORS) do
+    COLORS[key] = { r = color.r, g = color.g, b = color.b }
 end
 
 local function GetColor3(key)
@@ -400,12 +406,12 @@ local function GetColor3(key)
     return Color3.fromRGB(255, 255, 255)
 end
 
-LoadColors()
-
 local persistentState = {
     inspectorEnabled = false,
+    inspectorAlwaysVisible = false,
     uiScale = 1.0,
     modDetectionEnabled = false,
+    modViewerAlwaysVisible = false,
     autoLeaveEnabled = false,
     autoLeaveDelay = 1.0,
     itemEspEnabled = false,
@@ -531,7 +537,7 @@ local DrawingPool = {}
 DrawingPool.__index = DrawingPool
 
 function DrawingPool.new(maxSize)
-    local self = { objects = {}, maxSize = maxSize or 100, activeCount = 0 }
+    local self = { objects = {}, cache = {}, maxSize = maxSize or 100, activeCount = 0 }
     setmetatable(self, DrawingPool)
     return self
 end
@@ -547,6 +553,7 @@ function DrawingPool:Ensure(size)
         label.ZIndex = 999
         label.Visible = false
         table.insert(self.objects, label)
+        self.cache[#self.objects] = { Visible = false }
     end
 end
 
@@ -554,27 +561,48 @@ function DrawingPool:Update(index, pos, text, color, visible)
     if index <= #self.objects then
         local obj = self.objects[index]
         if obj then
-            obj.Position = pos or Vector2.new(0, 0)
-            obj.Text = text or ""
-            obj.Color = color or Color3.fromRGB(255, 255, 255)
-            obj.Visible = visible or false
+            local c = self.cache[index]
+            if not c then c = {}; self.cache[index] = c end
+            pos = pos or Vector2.new(0, 0)
+            text = text or ""
+            color = color or Color3.fromRGB(255, 255, 255)
+            visible = visible and true or false
+
+            if c.Position ~= pos then obj.Position = pos; c.Position = pos end
+            if c.Text ~= text then obj.Text = text; c.Text = text end
+            if c.Color ~= color then obj.Color = color; c.Color = color end
+            if c.Visible ~= visible then obj.Visible = visible; c.Visible = visible end
         end
     end
 end
 
 function DrawingPool:SetVisible(index, visible)
     if index <= #self.objects and self.objects[index] then
-        self.objects[index].Visible = visible
+        local c = self.cache[index]
+        visible = visible and true or false
+        if not c then c = {}; self.cache[index] = c end
+        if c.Visible ~= visible then
+            self.objects[index].Visible = visible
+            c.Visible = visible
+        end
     end
 end
 
 function DrawingPool:HideAll()
-    for _, obj in ipairs(self.objects) do obj.Visible = false end
+    for i, obj in ipairs(self.objects) do
+        local c = self.cache[i]
+        if not c then c = {}; self.cache[i] = c end
+        if c.Visible ~= false then
+            obj.Visible = false
+            c.Visible = false
+        end
+    end
 end
 
 function DrawingPool:Clear()
     for _, obj in ipairs(self.objects) do pcall(obj.Remove, obj) end
     self.objects = {}
+    self.cache = {}
     self.activeCount = 0
 end
 
@@ -717,7 +745,6 @@ local function RenderItemESP()
         itemPool:HideAll(); itemCache = {}; itemLastCount = -1
         return
     end
-    _updateProjectionCache()
     if #itemCache == 0 then itemPool:HideAll() return end
     local camera = workspace.CurrentCamera
     if not camera then return end
@@ -847,7 +874,7 @@ local function RenderCorpseESP()
         if corpse.Position and corpse.HasLoot then
             local distance = (corpse.Position - cameraPos).Magnitude
             if distance <= persistentState.corpseDistance then
-                local screenPos, onScreen = WorldToScreen(corpse.Position + Vector3.new(0, 1.5, 0))
+                local screenPos, onScreen = _project(corpse.Position + Vector3.new(0, 1.5, 0))
                 if onScreen then
                     table.insert(visibleCorpses, {
                         Text = corpse.Name .. " [LOOT] [" .. math.floor(distance) .. "m]",
@@ -911,7 +938,7 @@ local function RenderBannerESP()
     for _, banner in ipairs(bannerCache) do
         local distance = (banner.Position - cameraPos).Magnitude
         if distance <= persistentState.bannerDistance then
-            local screenPos, onScreen = WorldToScreen(banner.Position + Vector3.new(0, 1.5, 0))
+            local screenPos, onScreen = _project(banner.Position + Vector3.new(0, 1.5, 0))
             if onScreen then
                 table.insert(visibleBanners, {
                     Text = "Banner [" .. math.floor(distance) .. "m]",
@@ -1007,7 +1034,7 @@ local function RenderVehicleESP()
         if vehicle.Position then
             local distance = (vehicle.Position - cameraPos).Magnitude
             if distance <= persistentState.vehicleDistance then
-                local screenPos, onScreen = WorldToScreen(vehicle.Position + Vector3.new(0, 2, 0))
+                local screenPos, onScreen = _project(vehicle.Position + Vector3.new(0, 2, 0))
                 if onScreen then
                     local displayName = ToAscii(vehicle.RawName)
                     table.insert(visibleVehicles, {
@@ -1091,7 +1118,7 @@ local function RenderPrivateStorageESP()
     for _, entry in ipairs(privateStorageCache) do
         local distance = (entry.Position - cameraPos).Magnitude
         if distance <= persistentState.privateStorageDistance then
-            local screenPos, onScreen = WorldToScreen(entry.Position + Vector3.new(0, 1, 0))
+            local screenPos, onScreen = _project(entry.Position + Vector3.new(0, 1, 0))
             if onScreen then
                 table.insert(visibleStorage, {
                     Text = entry.Name .. " [" .. math.floor(distance) .. "m]",
@@ -1178,25 +1205,25 @@ local function UpdateModViewer()
     modViewerBox:Clear()
 
     if not initialSyncDone then
-        modViewerBox:Text("(syncing…)")
+        modViewerBox:Line("(syncing…)")
     elseif groupSyncedCount > 0 then
-        modViewerBox:Text("Moderators:")
+        modViewerBox:Line("Moderators:")
     else
-        modViewerBox:Text("(sync empty)")
+        modViewerBox:Line("(sync empty)")
     end
 
     if #found > 0 then
         for i, name in ipairs(found) do
-            if i <= 10 then modViewerBox:Text("- " .. name) end
+            if i <= 10 then modViewerBox:Line("- " .. name) end
         end
         if #found > 10 then
-            modViewerBox:Text("... and " .. (#found - 10) .. " more")
+            modViewerBox:Line("... and " .. (#found - 10) .. " more")
         end
     else
-        modViewerBox:Text("No mods detected")
+        modViewerBox:Line(initialSyncDone and "Scanning for mods..." or "Syncing mod list...")
     end
 
-    modViewerBox:SetVisible(true)
+    modViewerBox:SetVisible(#found > 0 or persistentState.modViewerAlwaysVisible)
 end
 
 local function AutoLeaveGame()
@@ -1426,7 +1453,22 @@ local function StopModDetection()
     if modViewerBox then modViewerBox:SetVisible(false) end
 end
 
-local inspectorObjects = {}
+persistentState.inspectorBox = Lib:CreateOverlay({
+    Title = "Target Inspector",
+    X = 24,
+    Y = 520,
+    Width = 150,
+    DynamicWidth = "expand",
+    DynamicHeight = true,
+    Visible = false,
+    Font = "SystemBold",
+    FontSize = 13,
+    HeaderSize = 12,
+    LineSpacing = 2,
+    LineHeight = 18,
+})
+persistentState.inspectorBox:SetVisible(false)
+
 local currentTargetName = ""
 local currentData = nil
 local lastScanTime = 0
@@ -1436,55 +1478,20 @@ local forcedScanTimer = 0
 local FORCED_SCAN_INTERVAL = 0.5
 local cachedPlayers = {}
 local lastPlayerCacheTime = 0
-local PLAYER_CACHE_INTERVAL = 1.0
+local PLAYER_CACHE_INTERVAL = 5.0
 
 local function RefreshPlayerCache()
     local players = {}
-    local camera = workspace.CurrentCamera
-    if not camera then return end
-    local cameraPos = camera.Position
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character and plr.Character.Parent then
             local head = plr.Character:FindFirstChild("Head")
             if head and head:IsA("BasePart") then
-                local pos = head.Position
-                table.insert(players, { Player = plr, Position = pos, Distance = (pos - cameraPos).Magnitude })
+                table.insert(players, { Player = plr, Head = head, Position = head.Position, Distance = 0 })
             end
         end
     end
     cachedPlayers = players
     lastPlayerCacheTime = tick()
-end
-
-local function CreateInspectorObjects()
-    local bg = Drawing.new("Square")
-    bg.Filled = true; bg.Color = Color3.fromRGB(25, 25, 30); bg.Transparency = 0.85
-    bg.ZIndex = 997; bg.Corner = 8; bg.Visible = false
-    table.insert(inspectorObjects, bg)
-
-    local border = Drawing.new("Square")
-    border.Filled = false; border.Color = Color3.fromRGB(255, 255, 255); border.Thickness = 2
-    border.ZIndex = 998; border.Corner = 8; border.Visible = false
-    table.insert(inspectorObjects, border)
-
-    local title = Drawing.new("Text")
-    title.Font = Drawing.Fonts.System; title.Size = 16; title.Color = Color3.fromRGB(255, 255, 255)
-    title.Outline = true; title.Center = false; title.ZIndex = 999
-    title.Text = "TARGET INSPECTOR"; title.Visible = false
-    table.insert(inspectorObjects, title)
-
-    for i = 1, 50 do
-        local txt = Drawing.new("Text")
-        txt.Font = Drawing.Fonts.System; txt.Size = 13; txt.Color = Color3.fromRGB(255, 255, 255)
-        txt.Outline = true; txt.Center = false; txt.ZIndex = 999; txt.Visible = false
-        table.insert(inspectorObjects, txt)
-    end
-end
-
-local function HideAllInspectorObjects()
-    for _, obj in ipairs(inspectorObjects or {}) do
-        if obj then obj.Visible = false end
-    end
 end
 
 local function GetCorpseLoot(corpse)
@@ -1506,25 +1513,34 @@ local function GetTargetPlayer()
     local cameraPos = camera.Position
     local lookDirection = camera.CFrame.LookVector
     local closestTarget = nil
-    local closestAngle = math.rad(4)
+    local bestDot = math.cos(math.rad(4))
     local targetType = "Player"
 
     for _, pData in ipairs(cachedPlayers) do
-        local toPlayer = (pData.Position - cameraPos).Unit
-        local angle = math.acos(math.clamp(lookDirection:Dot(toPlayer), -1, 1))
-        if angle < closestAngle then
-            closestAngle = angle; closestTarget = pData.Player; targetType = "Player"
+        local head = pData.Head
+        if head and head.Parent then
+            local pos = head.Position
+            pData.Position = pos
+            local offset = pos - cameraPos
+            local magnitude = offset.Magnitude
+            if magnitude > 0.001 then
+                local dot = lookDirection:Dot(offset / magnitude)
+                if dot > bestDot then
+                    bestDot = dot; closestTarget = pData.Player; targetType = "Player"
+                end
+            end
         end
     end
 
     for _, corpse in ipairs(corpseCache) do
         local pos = corpse.Position
         if pos then
-            local toCorpse = (pos - cameraPos).Unit
-            local angle = math.acos(math.clamp(lookDirection:Dot(toCorpse), -1, 1))
-            if angle < math.rad(4) then
-                if not closestTarget or angle < closestAngle then
-                    closestAngle = angle; closestTarget = corpse; targetType = "Corpse"
+            local offset = pos - cameraPos
+            local magnitude = offset.Magnitude
+            if magnitude > 0.001 then
+                local dot = lookDirection:Dot(offset / magnitude)
+                if dot > bestDot then
+                    bestDot = dot; closestTarget = corpse; targetType = "Corpse"
                 end
             end
         end
@@ -1542,7 +1558,10 @@ local function GetTargetData(target, targetType)
             local humanoid = character:FindFirstChild("Humanoid")
             if humanoid then info.Health = math.floor(humanoid.Health) end
             for _, pData in ipairs(cachedPlayers) do
-                if pData.Player == plr then info.Distance = math.floor(pData.Distance); break end
+                if pData.Player == plr then
+                    info.Distance = math.floor((pData.Position - workspace.CurrentCamera.Position).Magnitude)
+                    break
+                end
             end
         end
         local backpack = plr:FindFirstChild("Backpack")
@@ -1642,108 +1661,155 @@ local function GetContentLines(data)
 end
 
 local function UpdateInspectorGUI(data)
-    if not data then HideAllInspectorObjects() return end
-    if #inspectorObjects == 0 then CreateInspectorObjects() end
-    local viewport = workspace.CurrentCamera
-    if not viewport then return end
-    local viewSize = viewport.ViewportSize
-    local scale = persistentState.uiScale or 1.0
-    local lines = GetContentLines(data)
-    local padding = 12 * scale
-    local lineH = 18 * scale
-    local titleH = 30 * scale
-    local totalLines = #lines
-    local panelW = 320 * scale
-    local panelH = titleH + (totalLines * lineH) + padding
-    local pX = viewSize.X - panelW - 20 * scale
-    local pY = (viewSize.Y / 2) - (panelH / 2)
+    if not persistentState.inspectorBox then return end
+    persistentState.inspectorBox:Clear()
 
-    local bg = inspectorObjects[1]
-    bg.Size = Vector2.new(panelW, panelH); bg.Position = Vector2.new(pX, pY); bg.Visible = true
-    local border = inspectorObjects[2]
-    border.Size = Vector2.new(panelW, panelH); border.Position = Vector2.new(pX, pY); border.Visible = true
-    local title = inspectorObjects[3]
-    title.Position = Vector2.new(pX + padding, pY + 6 * scale)
-    title.Size = 16 * scale; title.Text = "TARGET INSPECTOR"; title.Visible = true
-
-    local yOff = pY + titleH + 2 * scale
-    for i, lineData in ipairs(lines) do
-        local txt = inspectorObjects[3 + i]
-        if txt then
-            txt.Position = Vector2.new(pX + padding, yOff)
-            txt.Text = lineData.text; txt.Color = lineData.color
-            txt.Size = 13 * scale; txt.Visible = true
-            yOff = yOff + lineH
+    if not data then
+        if persistentState.inspectorEnabled and persistentState.inspectorAlwaysVisible then
+            persistentState.inspectorBox:Line("Scanning for target...", Color3.fromRGB(150, 150, 150))
+            persistentState.inspectorBox:SetVisible(true)
+        else
+            persistentState.inspectorBox:SetVisible(false)
         end
+        return
     end
-    for i = 4 + #lines, #inspectorObjects do
-        if inspectorObjects[i] then inspectorObjects[i].Visible = false end
+
+    local lines = GetContentLines(data)
+    for i = 1, #lines do
+        local lineData = lines[i]
+        persistentState.inspectorBox:Line(lineData.text, lineData.color)
     end
+
+    persistentState.inspectorBox:SetVisible(true)
 end
 
 local function RenderInspector()
     if not persistentState.inspectorEnabled then
-        if #inspectorObjects > 0 then HideAllInspectorObjects() end
+        if persistentState.inspectorBox then persistentState.inspectorBox:SetVisible(false) end
+        currentTargetName = ""
         return
     end
-    if #inspectorObjects == 0 then CreateInspectorObjects() end
-    local now = tick()
-    if now - lastPlayerCacheTime > PLAYER_CACHE_INTERVAL then RefreshPlayerCache() end
-    if now - forcedScanTimer > FORCED_SCAN_INTERVAL then forcedScanTimer = now; scanRequested = true end
-    if scanRequested and now - lastScanTime > SCAN_INTERVAL then
-        scanRequested = false; lastScanTime = now
-        local target, targetType = GetTargetPlayer()
-        local newTargetName = target and target.Name or ""
-        if newTargetName ~= currentTargetName then
-            currentTargetName = newTargetName
-            if target then
-                local data = GetTargetData(target, targetType)
-                if data then currentData = data; UpdateInspectorGUI(data) end
-            else
-                currentData = nil; HideAllInspectorObjects()
-            end
+
+    local target, targetType = GetTargetPlayer()
+    local newTargetName = target and target.Name or ""
+
+    if newTargetName ~= currentTargetName then
+        currentTargetName = newTargetName
+        persistentState.inspectorPendingTarget = target
+        persistentState.inspectorPendingType = targetType
+        persistentState.inspectorPendingSerial = (persistentState.inspectorPendingSerial or 0) + 1
+
+        if not target then
+            currentData = nil
+            UpdateInspectorGUI(nil)
         end
     end
 end
 
+task.spawn(function()
+    local handledSerial = -1
+    while true do
+        if persistentState.inspectorEnabled then
+            local now = tick()
+
+            if now - lastPlayerCacheTime > PLAYER_CACHE_INTERVAL then
+                pcall(RefreshPlayerCache)
+            end
+
+            local serial = persistentState.inspectorPendingSerial or 0
+            if serial ~= handledSerial then
+                handledSerial = serial
+                local target = persistentState.inspectorPendingTarget
+                local targetType = persistentState.inspectorPendingType
+
+                if target then
+                    local ok, data = pcall(GetTargetData, target, targetType)
+                    if ok and data and handledSerial == (persistentState.inspectorPendingSerial or 0) then
+                        currentData = data
+                        UpdateInspectorGUI(data)
+                    end
+                end
+            end
+        end
+        task.wait(0.05)
+    end
+end)
+
 local win = Lib:CreateWindow({
-    title = "Walking Dead",
-    subtitle = "by og_ten",
-    size = Vector2.new(700, 540),
-    menuKey = "p",
-    theme = { accent = Color3.fromRGB(180, 60, 60) },
-    configName = "walkingdead",
-    autoSave = true,
-    logo = "https://i.ibb.co/xty8DqSq/rick-rick-grimes.png",
-    logoSize = 30,
+    Title = "Walking Dead",
+    Subtitle = "by og_ten",
+    Size = Vector2.new(700, 540),
+    MenuKey = "p",
+
+    Logo = RICK_LOGO,
+    ShowLogo = true,
+    LogoSize = 38,
+    ShowGameName = true,
+
+    Theme = "Deep Ocean",
+    Background = "Aurora",
+
+    Splash = {
+        Title = "Walking Dead",
+        Image = RICK_LOGO,
+        ShowLogo = true,
+        ShowGameName = true,
+        LogoSize = 58,
+        Border = true,
+        AccentBar = true,
+        FooterAccent = true,
+        Duration = 5.0,
+    },
 })
 
-win:AddSettingsTab("gear")
-Lib:Notify("Walking Dead", "Press P to toggle the menu", 4, "info")
+Lib:Notify({
+    Title = "Walking Dead",
+    Content = "Press P to toggle the menu",
+    Duration = 4,
+    Type = "info",
+})
 
-local espTab = win:Tab("ESP", "eye")
-local itemSection = espTab:Section("Item ESP", "Left", "Find Items Near You")
+local espTab = Lib:AddTab({ Title = "ESP", Icon = "eye", Select = true })
+local itemSection = espTab:AddSection("Item ESP", "Find Items Near You", { Column = "left" })
 
-itemSection:Slider("Item Render Distance", persistentState.itemDistance, 100, 0, 5000, "m", function(v) persistentState.itemDistance = v end)
+itemSection:AddSlider({
+    Title = "Item Render Distance",
+    ConfigKey = "esp.itemDistance",
+    Default = persistentState.itemDistance, Min = 0, Max = 5000, Step = 100, Suffix = "m",
+    Callback = function(v) persistentState.itemDistance = v end,
+})
 
-local itemToggle = itemSection:Toggle("Enable Item ESP", false, function(state)
-    persistentState.itemEspEnabled = state
-    if state then
-        itemCache = {}; itemLastCount = -1
-        task.spawn(function() task.wait(0.1); PerformItemScan() end)
-    else
-        itemPool:HideAll(); itemCache = {}; itemLastCount = -1
-        SafeNotify("Item ESP disabled", "Item ESP", 2)
-    end
-end)
-itemToggle:AddKeybind("I", "Click", function()
-    if persistentState.itemEspEnabled then
-        itemCache = {}; itemLastCount = -1
-        task.spawn(function() task.wait(0.1); PerformItemScan() end)
-    else
-        SafeNotify("Item ESP is disabled. Enable it first.", "Item ESP", 2)
-    end
-end)
+local itemToggle = itemSection:AddToggle({
+    Title = "Enable Item ESP",
+    ConfigKey = "esp.itemEnabled",
+    Default = false,
+    InlineGap = 10,
+    InlineOrder = {"Keybind"},
+    Callback = function(state)
+        persistentState.itemEspEnabled = state
+        if state then
+            itemCache = {}; itemLastCount = -1
+            task.spawn(function() task.wait(0.1); PerformItemScan() end)
+        else
+            itemPool:HideAll(); itemCache = {}; itemLastCount = -1
+            SafeNotify("Item ESP disabled", "Item ESP", 2)
+        end
+    end,
+})
+
+itemToggle:AddKeybind({
+    Title = "Refresh Item ESP",
+    Default = "i",
+    Mode = "Hold",
+    Pressed = function()
+        if persistentState.itemEspEnabled then
+            itemCache = {}; itemLastCount = -1
+            task.spawn(function() task.wait(0.1); PerformItemScan() end)
+        else
+            SafeNotify("Item ESP is disabled. Enable it first.", "Item ESP", 2)
+        end
+    end,
+})
 
 local filterDropdowns = {}
 local categories = {"Weapons", "Melee", "Equipment", "Ammo", "Food", "Misc", "Keycards", "Accessory"}
@@ -1754,228 +1820,383 @@ local categoryKeys = {
 }
 
 for _, cat in ipairs(categories) do
-    local toggle = itemSection:Toggle(cat, false, function(state)
-        persistentState.categoryToggles[cat] = state
-        for _, itemName in ipairs(ITEM_TYPES[cat] or {}) do
-            persistentState.itemToggles[itemName] = state
-        end
-        if state then itemCache = {}; itemPool:HideAll() else itemPool:HideAll() end
-    end)
+    local categoryToggle = itemSection:AddToggle({
+        Title = cat,
+        ConfigKey = "esp.category." .. cat,
+        Default = false,
+        InlineGap = 10,
+        InlineOrder = {"ColorPicker"},
+        Callback = function(state)
+            persistentState.categoryToggles[cat] = state
+            for _, itemName in ipairs(ITEM_TYPES[cat] or {}) do
+                persistentState.itemToggles[itemName] = state
+            end
+            if state then itemCache = {}; itemPool:HideAll() else itemPool:HideAll() end
+        end,
+    })
+
     local colorKey = categoryKeys[cat]
     local color = COLORS[colorKey] or { r = 255, g = 255, b = 255 }
-    toggle:AddColorpicker(cat .. " Color", Color3.fromRGB(color.r, color.g, color.b), function(newColor, alpha)
-        COLORS[colorKey] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
-        SaveColors(); LoadColors()
-    end)
+    categoryToggle:AddColorPicker({
+        ConfigKey = "esp.color." .. colorKey,
+        Default = Color3.fromRGB(color.r, color.g, color.b),
+        Callback = function(newColor, alpha)
+            COLORS[colorKey] = {
+                r = math.floor(newColor.R * 255),
+                g = math.floor(newColor.G * 255),
+                b = math.floor(newColor.B * 255),
+            }
+        end,
+    })
+
     local filterKey = "filter" .. cat
-    local dropdown = itemSection:Dropdown(cat .. " Filter", {}, function() return ITEM_TYPES[cat] or {} end, true, function(selected)
-        persistentState[filterKey] = selected or {}
-        SafeNotify(cat .. " Filter", #selected .. " items selected", 2)
-    end)
-    dropdown:Tooltip("Select specific " .. cat .. " items to display")
+    local dropdown = itemSection:AddDropdown({
+        Title = cat .. " Filter",
+        ConfigKey = "esp.filter." .. cat,
+        Options = ITEM_TYPES[cat] or {},
+        Default = persistentState[filterKey] or {},
+        Multi = true,
+        VisibleRows = 6,
+        Callback = function(selected)
+            selected = selected or {}
+            persistentState[filterKey] = selected
+            SafeNotify(cat .. " Filter", #selected .. " items selected", 2)
+        end,
+    })
     filterDropdowns[cat] = dropdown
 end
 
-itemSection:Button("Clear All Filters", function()
-    persistentState.filterWeapons = {}
-    persistentState.filterMelee = {}
-    persistentState.filterAmmo = {}
-    persistentState.filterFood = {}
-    persistentState.filterMisc = {}
-    persistentState.filterKeycards = {}
-    persistentState.filterEquipment = {}
-    persistentState.filterAccessory = {}
-    for cat, dropdown in pairs(filterDropdowns) do dropdown:Set({}) end
-    SafeNotify("Filters", "All filters cleared", 2)
-end)
+itemSection:AddButton({
+    Title = "",
+    ButtonText = "Clear All Filters",
+    Expand = true,
+    Variant = "danger",
+    Callback = function()
+        persistentState.filterWeapons = {}
+        persistentState.filterMelee = {}
+        persistentState.filterAmmo = {}
+        persistentState.filterFood = {}
+        persistentState.filterMisc = {}
+        persistentState.filterKeycards = {}
+        persistentState.filterEquipment = {}
+        persistentState.filterAccessory = {}
+        for _, dropdown in pairs(filterDropdowns) do
+            dropdown:SetValue({})
+        end
+        SafeNotify("Filters", "All filters cleared", 2)
+    end,
+})
 
-local corpseSection = espTab:Section("Corpse ESP", "Right", "Find Corpses Near You")
-corpseSection:Slider("Corpse Render Distance", persistentState.corpseDistance, 100, 0, 5000, "m", function(v) persistentState.corpseDistance = v end)
+local corpseSection = espTab:AddSection("Corpse ESP", "Find Corpses Near You", { Column = "right" })
+corpseSection:AddSlider({
+    Title = "Corpse Render Distance",
+    ConfigKey = "esp.corpseDistance",
+    Default = persistentState.corpseDistance, Min = 0, Max = 5000, Step = 100, Suffix = "m",
+    Callback = function(v) persistentState.corpseDistance = v end,
+})
 
-local corpseToggle = corpseSection:Toggle("Enable Corpse ESP", false, function(state)
-    persistentState.corpseEspEnabled = state
-    if state then
-        corpseCache = {}; corpseScanned = false
-        task.spawn(function() task.wait(0.1); PerformCorpseScan() end)
-    else
-        corpsePool:HideAll(); corpseCache = {}; corpseScanned = false
-        SafeNotify("Corpse ESP disabled", "Corpse ESP", 2)
-    end
-end)
-corpseToggle:AddKeybind("C", "Click", function()
-    if persistentState.corpseEspEnabled then
-        corpseCache = {}; corpseScanned = false
-        task.spawn(function() task.wait(0.1); PerformCorpseScan() end)
-    else
-        SafeNotify("Corpse ESP is disabled. Enable it first.", "Corpse ESP", 2)
-    end
-end)
+local corpseToggle = corpseSection:AddToggle({
+    Title = "Enable Corpse ESP",
+    ConfigKey = "esp.corpseEnabled",
+    Default = false,
+    InlineGap = 10,
+    InlineOrder = {"Keybind"},
+    Callback = function(state)
+        persistentState.corpseEspEnabled = state
+        if state then
+            corpseCache = {}; corpseScanned = false
+            task.spawn(function() task.wait(0.1); PerformCorpseScan() end)
+        else
+            corpsePool:HideAll(); corpseCache = {}; corpseScanned = false
+            SafeNotify("Corpse ESP disabled", "Corpse ESP", 2)
+        end
+    end,
+})
+corpseToggle:AddKeybind({
+    Title = "Refresh Corpse ESP",
+    Default = "c",
+    Mode = "Hold",
+    Pressed = function()
+        if persistentState.corpseEspEnabled then
+            corpseCache = {}; corpseScanned = false
+            task.spawn(function() task.wait(0.1); PerformCorpseScan() end)
+        else
+            SafeNotify("Corpse ESP is disabled. Enable it first.", "Corpse ESP", 2)
+        end
+    end,
+})
 
 local corpseLootColor = COLORS["corpseLoot"] or { r = 50, g = 255, b = 50 }
-corpseSection:Colorpicker("Corpse Loot Color", Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b), function(newColor, alpha)
-    COLORS["corpseLoot"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
-    SaveColors(); LoadColors()
-end)
+corpseSection:AddColorPicker({
+    Title = "Corpse Loot Color",
+    ConfigKey = "esp.color.corpseLoot",
+    Default = Color3.fromRGB(corpseLootColor.r, corpseLootColor.g, corpseLootColor.b),
+    Callback = function(newColor, alpha)
+        COLORS["corpseLoot"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
+    end,
+})
 
-local bannerSection = espTab:Section("Banner ESP", "Right", "Find Banners Near You")
-bannerSection:Slider("Banner Render Distance", persistentState.bannerDistance, 100, 0, 5000, "m", function(v) persistentState.bannerDistance = v end)
-
-local bannerToggle = bannerSection:Toggle("Enable Banner ESP", false, function(state)
-    persistentState.bannerEspEnabled = state
-    if state then
-        bannerCache = {}; bannerScanned = false
-        task.spawn(function() task.wait(0.1); PerformBannerScan() end)
-    else
-        bannerPool:HideAll(); bannerCache = {}; bannerScanned = false
-        SafeNotify("Banner ESP disabled", "Banner ESP", 2)
-    end
-end)
-bannerToggle:AddKeybind("B", "Click", function()
-    if persistentState.bannerEspEnabled then
-        bannerCache = {}; bannerScanned = false
-        task.spawn(function() task.wait(0.1); PerformBannerScan() end)
-    else
-        SafeNotify("Banner ESP is disabled. Enable it first.", "Banner ESP", 2)
-    end
-end)
-
+local bannerSection = espTab:AddSection("Banner ESP", "Find Banners Near You", { Column = "right" })
+bannerSection:AddSlider({
+    Title = "Banner Render Distance",
+    ConfigKey = "esp.bannerDistance",
+    Default = persistentState.bannerDistance, Min = 0, Max = 5000, Step = 100, Suffix = "m",
+    Callback = function(v) persistentState.bannerDistance = v end,
+})
+local bannerToggle = bannerSection:AddToggle({
+    Title = "Enable Banner ESP",
+    ConfigKey = "esp.bannerEnabled",
+    Default = false,
+    InlineGap = 10,
+    InlineOrder = {"Keybind"},
+    Callback = function(state)
+        persistentState.bannerEspEnabled = state
+        if state then
+            bannerCache = {}; bannerScanned = false
+            task.spawn(function() task.wait(0.1); PerformBannerScan() end)
+        else
+            bannerPool:HideAll(); bannerCache = {}; bannerScanned = false
+            SafeNotify("Banner ESP disabled", "Banner ESP", 2)
+        end
+    end,
+})
+bannerToggle:AddKeybind({
+    Title = "Refresh Banner ESP",
+    Default = "b",
+    Mode = "Hold",
+    Pressed = function()
+        if persistentState.bannerEspEnabled then
+            bannerCache = {}; bannerScanned = false
+            task.spawn(function() task.wait(0.1); PerformBannerScan() end)
+        else
+            SafeNotify("Banner ESP is disabled. Enable it first.", "Banner ESP", 2)
+        end
+    end,
+})
 local bannerColor = COLORS["banner"] or { r = 0, g = 200, b = 255 }
-local bannerColorToggle = bannerSection:Toggle("Banner Color", true)
-bannerColorToggle:AddColorpicker("Banner Color", Color3.fromRGB(bannerColor.r, bannerColor.g, bannerColor.b), function(newColor, alpha)
-    COLORS["banner"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
-    SaveColors(); LoadColors()
-end)
+bannerSection:AddColorPicker({
+    Title = "Banner Color",
+    ConfigKey = "esp.color.banner",
+    Default = Color3.fromRGB(bannerColor.r, bannerColor.g, bannerColor.b),
+    Callback = function(newColor, alpha)
+        COLORS["banner"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
+    end,
+})
 
-local vehicleSection = espTab:Section("Vehicle ESP", "Right", "Find Vehicles Near You")
-vehicleSection:Slider("Vehicle Render Distance", persistentState.vehicleDistance, 100, 0, 5000, "m", function(v) persistentState.vehicleDistance = v end)
-
-local vehicleToggle = vehicleSection:Toggle("Enable Vehicle ESP", false, function(state)
-    persistentState.vehicleEspEnabled = state
-    if state then
-        vehicleCache = {}; vehicleScanned = false
-        task.spawn(function() task.wait(0.1); PerformVehicleScan() end)
-    else
-        vehiclePool:HideAll(); vehicleCache = {}; vehicleScanned = false
-        SafeNotify("Vehicle ESP disabled", "Vehicle ESP", 2)
-    end
-end)
-vehicleToggle:AddKeybind("V", "Click", function()
-    if persistentState.vehicleEspEnabled then
-        vehicleCache = {}; vehicleScanned = false
-        task.spawn(function() task.wait(0.1); PerformVehicleScan() end)
-    else
-        SafeNotify("Vehicle ESP is disabled. Enable it first.", "Vehicle ESP", 2)
-    end
-end)
-
+local vehicleSection = espTab:AddSection("Vehicle ESP", "Find Vehicles Near You", { Column = "right" })
+vehicleSection:AddSlider({
+    Title = "Vehicle Render Distance",
+    ConfigKey = "esp.vehicleDistance",
+    Default = persistentState.vehicleDistance, Min = 0, Max = 5000, Step = 100, Suffix = "m",
+    Callback = function(v) persistentState.vehicleDistance = v end,
+})
+local vehicleToggle = vehicleSection:AddToggle({
+    Title = "Enable Vehicle ESP",
+    ConfigKey = "esp.vehicleEnabled",
+    Default = false,
+    InlineGap = 10,
+    InlineOrder = {"Keybind"},
+    Callback = function(state)
+        persistentState.vehicleEspEnabled = state
+        if state then
+            vehicleCache = {}; vehicleScanned = false
+            task.spawn(function() task.wait(0.1); PerformVehicleScan() end)
+        else
+            vehiclePool:HideAll(); vehicleCache = {}; vehicleScanned = false
+            SafeNotify("Vehicle ESP disabled", "Vehicle ESP", 2)
+        end
+    end,
+})
+vehicleToggle:AddKeybind({
+    Title = "Refresh Vehicle ESP",
+    Default = "v",
+    Mode = "Hold",
+    Pressed = function()
+        if persistentState.vehicleEspEnabled then
+            vehicleCache = {}; vehicleScanned = false
+            task.spawn(function() task.wait(0.1); PerformVehicleScan() end)
+        else
+            SafeNotify("Vehicle ESP is disabled. Enable it first.", "Vehicle ESP", 2)
+        end
+    end,
+})
 local vehicleColor = COLORS["car"] or { r = 255, g = 200, b = 50 }
-local vehicleColorToggle = vehicleSection:Toggle("Vehicle Color", true)
-vehicleColorToggle:AddColorpicker("Vehicle Color", Color3.fromRGB(vehicleColor.r, vehicleColor.g, vehicleColor.b), function(newColor, alpha)
-    COLORS["car"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
-    SaveColors(); LoadColors()
-end)
+vehicleSection:AddColorPicker({
+    Title = "Vehicle Color",
+    ConfigKey = "esp.color.car",
+    Default = Color3.fromRGB(vehicleColor.r, vehicleColor.g, vehicleColor.b),
+    Callback = function(newColor, alpha)
+        COLORS["car"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
+    end,
+})
 
-local privateStorageSection = espTab:Section("Private Storage", "Right", "Find Your Personal Storage")
-privateStorageSection:Slider("Storage Render Distance", persistentState.privateStorageDistance, 100, 0, 5000, "m", function(v) persistentState.privateStorageDistance = v end)
-
-local privateStorageToggle = privateStorageSection:Toggle("Enable Private Storage", false, function(state)
-    persistentState.privateStorageEspEnabled = state
-    if state then
-        privateStorageCache = {}; privateStorageScanned = false
-        task.spawn(function() task.wait(0.1); PerformPrivateStorageScan() end)
-    else
-        storagePool:HideAll(); privateStorageCache = {}; privateStorageScanned = false
-        SafeNotify("Private Storage disabled", "Private Storage ESP", 2)
-    end
-end)
-privateStorageToggle:AddKeybind("P", "Click", function()
-    if persistentState.privateStorageEspEnabled then
-        privateStorageCache = {}; privateStorageScanned = false
-        task.spawn(function() task.wait(0.1); PerformPrivateStorageScan() end)
-    else
-        SafeNotify("Private Storage ESP is disabled. Enable it first.", "Private Storage ESP", 2)
-    end
-end)
-
+local privateStorageSection = espTab:AddSection("Private Storage", "Find Your Personal Storage", { Column = "right" })
+privateStorageSection:AddSlider({
+    Title = "Storage Render Distance",
+    ConfigKey = "esp.privateStorageDistance",
+    Default = persistentState.privateStorageDistance, Min = 0, Max = 5000, Step = 100, Suffix = "m",
+    Callback = function(v) persistentState.privateStorageDistance = v end,
+})
+local privateStorageToggle = privateStorageSection:AddToggle({
+    Title = "Enable Private Storage",
+    ConfigKey = "esp.privateStorageEnabled",
+    Default = false,
+    InlineGap = 10,
+    InlineOrder = {"Keybind"},
+    Callback = function(state)
+        persistentState.privateStorageEspEnabled = state
+        if state then
+            privateStorageCache = {}; privateStorageScanned = false
+            task.spawn(function() task.wait(0.1); PerformPrivateStorageScan() end)
+        else
+            storagePool:HideAll(); privateStorageCache = {}; privateStorageScanned = false
+            SafeNotify("Private Storage disabled", "Private Storage ESP", 2)
+        end
+    end,
+})
+privateStorageToggle:AddKeybind({
+    Title = "Refresh Private Storage",
+    Default = "p",
+    Mode = "Hold",
+    Pressed = function()
+        if persistentState.privateStorageEspEnabled then
+            privateStorageCache = {}; privateStorageScanned = false
+            task.spawn(function() task.wait(0.1); PerformPrivateStorageScan() end)
+        else
+            SafeNotify("Private Storage ESP is disabled. Enable it first.", "Private Storage ESP", 2)
+        end
+    end,
+})
 local privateStorageColor = COLORS["privateStorage"] or { r = 255, g = 120, b = 120 }
-privateStorageSection:Colorpicker("Private Storage Color", Color3.fromRGB(privateStorageColor.r, privateStorageColor.g, privateStorageColor.b), function(newColor, alpha)
-    COLORS["privateStorage"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
-    SaveColors(); LoadColors()
-end)
+privateStorageSection:AddColorPicker({
+    Title = "Private Storage Color",
+    ConfigKey = "esp.color.privateStorage",
+    Default = Color3.fromRGB(privateStorageColor.r, privateStorageColor.g, privateStorageColor.b),
+    Callback = function(newColor, alpha)
+        COLORS["privateStorage"] = { r = math.floor(newColor.R * 255), g = math.floor(newColor.G * 255), b = math.floor(newColor.B * 255) }
+    end,
+})
 
-local inspectorsTab = win:Tab("Inspectors", "search")
-local inspectorMain = inspectorsTab:Section("Target Inspector", "Left", "See Equipped Items")
-inspectorMain:Toggle("Enable Inspector", false, function(state)
-    persistentState.inspectorEnabled = state
-    if state then
-        currentTargetName = ""; currentData = nil; scanRequested = true
-        RefreshPlayerCache(); HideAllInspectorObjects()
-        SafeNotify("Target Inspector enabled", nil, 2)
-    else
-        HideAllInspectorObjects()
-        SafeNotify("Target Inspector disabled", nil, 2)
-    end
-end)
-inspectorMain:Slider("UI Scale", persistentState.uiScale, 0.1, 0.5, 2.0, "x", function(value)
-    persistentState.uiScale = value
-    if currentData then UpdateInspectorGUI(currentData) end
-end)
+local inspectorsTab = Lib:AddTab({ Title = "Inspectors", Icon = "search" })
+local inspectorMain = inspectorsTab:AddSection("Target Inspector", "See Equipped Items")
+inspectorMain:AddToggle({
+    Title = "Enable Inspector",
+    ConfigKey = "inspectors.targetInspector",
+    Default = false,
+    Callback = function(state)
+        persistentState.inspectorEnabled = state
+        if state then
+            currentTargetName = ""; currentData = nil; scanRequested = true
+            RefreshPlayerCache()
+            UpdateInspectorGUI(nil)
+            SafeNotify("Target Inspector enabled", nil, 2)
+        else
+            if persistentState.inspectorBox then persistentState.inspectorBox:SetVisible(false) end
+            SafeNotify("Target Inspector disabled", nil, 2)
+        end
+    end,
+})
 
-local modMain = inspectorsTab:Section("Mod Detection", "Right", "Detect Mods")
-local modToggle = modMain:Toggle("Enable Mod Scan", false, function(state)
-    persistentState.modDetectionEnabled = state
-    if state then
-        SafeNotify("Scanning for mods...", "Scanning", 2)
-        task.spawn(function()
-            task.wait(0.3)
-            PerformModScan(true)
-            StartModDetection()
-        end)
-    else
-        StopModDetection()
-        SafeNotify("Mod Detection disabled", "Mod Detection", 2)
-    end
-end)
+inspectorMain:AddToggle({
+    Title = "Always Show Inspector",
+    ConfigKey = "inspectors.targetInspectorAlwaysVisible",
+    Default = false,
+    Callback = function(state)
+        persistentState.inspectorAlwaysVisible = state
+        if persistentState.inspectorEnabled then
+            if currentData then
+                UpdateInspectorGUI(currentData)
+            else
+                UpdateInspectorGUI(nil)
+            end
+        elseif persistentState.inspectorBox then
+            persistentState.inspectorBox:SetVisible(false)
+        end
+    end,
+})
 
-local autoLeaveToggle = modMain:Toggle("Auto-Leave on Mod Detection", false, function(state)
-    persistentState.autoLeaveEnabled = state
-    if state then
-        if persistentState.modDetectionEnabled then
-            SafeNotify("Auto-Leave enabled - will leave when mod is detected", "Auto-Leave", 2)
+local modMain = inspectorsTab:AddSection("Mod Detection", "Detect Mods")
+local modToggle = modMain:AddToggle({
+    Title = "Enable Mod Scan",
+    ConfigKey = "inspectors.modScan",
+    Default = false,
+    Callback = function(state)
+        persistentState.modDetectionEnabled = state
+        if state then
+            SafeNotify("Scanning for mods...", "Scanning", 2)
             task.spawn(function()
-                local waited = 0
-                while not initialSyncDone and waited < 10 do
-                    task.wait(0.25)
-                    waited = waited + 0.25
-                end
-
-                task.wait(0.2)
-                local found = GetModsInGame()
-                if #found > 0 then
-                    local modList = table.concat(found, ", ")
-                    SafeNotify(#found .. " mod(s) in server! Leaving in " .. math.floor(persistentState.autoLeaveDelay) .. "s", "Auto-Leave", persistentState.autoLeaveDelay + 2)
-                    task.wait(persistentState.autoLeaveDelay)
-                    AutoLeaveGame()
-                end
+                task.wait(0.3)
+                PerformModScan(true)
+                StartModDetection()
             end)
         else
-            SafeNotify("Auto-Leave requires Mod Detection to be enabled", "Auto-Leave", 3)
-            task.spawn(function()
-                task.wait(0.1)
-                if autoLeaveToggle then autoLeaveToggle:Set(false) end
-                persistentState.autoLeaveEnabled = false
-            end)
+            StopModDetection()
+            SafeNotify("Mod Detection disabled", "Mod Detection", 2)
         end
-    else
-        SafeNotify("Auto-Leave disabled", "Auto-Leave", 2)
-    end
-end)
+    end,
+})
 
-modMain:Slider("Leave Delay", persistentState.autoLeaveDelay, 0.5, 0.5, 20.0, "s", function(v) persistentState.autoLeaveDelay = v end)
+modMain:AddToggle({
+    Title = "Always Show Mod Viewer",
+    ConfigKey = "inspectors.modViewerAlwaysVisible",
+    Default = false,
+    Callback = function(state)
+        persistentState.modViewerAlwaysVisible = state
+        if persistentState.modDetectionEnabled then
+            UpdateModViewer()
+        elseif modViewerBox then
+            modViewerBox:SetVisible(false)
+        end
+    end,
+})
+
+local autoLeaveToggle
+autoLeaveToggle = modMain:AddToggle({
+    Title = "Auto-Leave on Mod Detection",
+    ConfigKey = "inspectors.autoLeave",
+    Default = false,
+    Callback = function(state)
+        persistentState.autoLeaveEnabled = state
+        if state then
+            if persistentState.modDetectionEnabled then
+                SafeNotify("Auto-Leave enabled - will leave when mod is detected", "Auto-Leave", 2)
+                task.spawn(function()
+                    local waited = 0
+                    while not initialSyncDone and waited < 10 do
+                        task.wait(0.25)
+                        waited = waited + 0.25
+                    end
+                    task.wait(0.2)
+                    local found = GetModsInGame()
+                    if #found > 0 then
+                        local modList = table.concat(found, ", ")
+                        SafeNotify(#found .. " mod(s) in server! Leaving in " .. math.floor(persistentState.autoLeaveDelay) .. "s", "Auto-Leave", persistentState.autoLeaveDelay + 2)
+                        task.wait(persistentState.autoLeaveDelay)
+                        AutoLeaveGame()
+                    end
+                end)
+            else
+                SafeNotify("Auto-Leave requires Mod Detection to be enabled", "Auto-Leave", 3)
+                task.spawn(function()
+                    task.wait(0.1)
+                    if autoLeaveToggle then autoLeaveToggle:SetValue(false, true) end
+                    persistentState.autoLeaveEnabled = false
+                end)
+            end
+        else
+            SafeNotify("Auto-Leave disabled", "Auto-Leave", 2)
+        end
+    end,
+})
+modMain:AddSlider({
+    Title = "Leave Delay",
+    ConfigKey = "inspectors.leaveDelay",
+    Default = persistentState.autoLeaveDelay, Min = 0.5, Max = 20.0, Step = 0.5, Suffix = "s",
+    Callback = function(v) persistentState.autoLeaveDelay = v end,
+})
 
 local worldReady = WorldState.ready
-
-local worldTab = win:Tab("World", "globe")
+local worldTab = Lib:AddTab({ Title = "World", Icon = "globe" })
 
 local worldRegistry = {
     lightingToggles = {},
@@ -1985,12 +2206,17 @@ local worldRegistry = {
 }
 
 local function buildToggle(section, label, registry, key, applyFn)
-    local t = section:Toggle(label, false, applyFn)
+    local t = section:AddToggle({
+        Title = label,
+        ConfigKey = "world.toggle." .. tostring(key),
+        Default = false,
+        Callback = applyFn,
+    })
     registry[key] = t
     return t
 end
 
-local skySec = worldTab:Section("Sky & Effects", "Right", "visual atmosphere")
+local skySec = worldTab:AddSection("Sky & Effects", "visual atmosphere")
 
 local atmoPtrOriginal = 0
 do
@@ -2006,9 +2232,7 @@ buildToggle(skySec, "Disable Atmosphere", worldRegistry.skyToggles, "DisableAtmo
         local target = isPtr(WorldState.cloudsPtr) and WorldState.cloudsPtr or 0
         safeWrite("uintptr_t", lp + 0x1c8, target)
     else
-        if isPtr(WorldState.atmoPtr) then
-            safeWrite("uintptr_t", lp + 0x1c8, WorldState.atmoPtr)
-        end
+        if isPtr(WorldState.atmoPtr) then safeWrite("uintptr_t", lp + 0x1c8, WorldState.atmoPtr) end
     end
 end)
 
@@ -2027,88 +2251,85 @@ buildToggle(skySec, "Disable Color Correction", worldRegistry.skyToggles, "Disab
     safeWrite("byte", WorldState.colorCorrectionPtr + 0xa0, state and 0 or (WorldState.originals.CC_Enabled or DEFAULTS.CC_Enabled))
 end)
 
-local waterSec = worldTab:Section("Water & Terrain", "Left", "water and ground controls")
-
+local waterSec = worldTab:AddSection("Water & Terrain", "water and ground controls")
 buildToggle(waterSec, "Disable Grass", worldRegistry.terrainToggles, "DisableGrass", function(state)
     if not isPtr(WorldState.terrainPtr) then return end
     safeWrite("float", WorldState.terrainPtr + 0x1e0, state and -0.5 or (WorldState.originals.Terrain_GrassLength or DEFAULTS.Terrain_GrassLength))
 end)
 
-worldRegistry.terrainSliders.WaterTransparency = waterSec:Slider(
-    "Water Transparency",
-    DEFAULTS.Terrain_WaterTrans,
-    0.05, 0, 1, "",
-    function(v)
+worldRegistry.terrainSliders.WaterTransparency = waterSec:AddSlider({
+    Title = "Water Transparency",
+    ConfigKey = "world.waterTransparency",
+    Default = DEFAULTS.Terrain_WaterTrans, Min = 0, Max = 1, Step = 0.05,
+    Callback = function(v)
         if not isPtr(WorldState.terrainPtr) then return end
         safeWrite("float", WorldState.terrainPtr + 0x1ec, v)
-    end
-)
-
-worldRegistry.terrainSliders.WaterReflectance = waterSec:Slider(
-    "Water Reflectance",
-    DEFAULTS.Terrain_WaterReflect,
-    0.05, 0, 1, "",
-    function(v)
+    end,
+})
+worldRegistry.terrainSliders.WaterReflectance = waterSec:AddSlider({
+    Title = "Water Reflectance",
+    ConfigKey = "world.waterReflectance",
+    Default = DEFAULTS.Terrain_WaterReflect, Min = 0, Max = 1, Step = 0.05,
+    Callback = function(v)
         if not isPtr(WorldState.terrainPtr) then return end
         safeWrite("float", WorldState.terrainPtr + 0x1e8, v)
-    end
-)
-
-worldRegistry.terrainSliders.WaveSize = waterSec:Slider(
-    "Wave Size",
-    DEFAULTS.Terrain_WaveSize,
-    0.05, 0, 5, "",
-    function(v)
+    end,
+})
+worldRegistry.terrainSliders.WaveSize = waterSec:AddSlider({
+    Title = "Wave Size",
+    ConfigKey = "world.waveSize",
+    Default = DEFAULTS.Terrain_WaveSize, Min = 0, Max = 5, Step = 0.05,
+    Callback = function(v)
         if not isPtr(WorldState.terrainPtr) then return end
         safeWrite("float", WorldState.terrainPtr + 0x1f0, v)
-    end
-)
-
-worldRegistry.terrainSliders.WaveSpeed = waterSec:Slider(
-    "Wave Speed",
-    DEFAULTS.Terrain_WaveSpeed,
-    0.05, 0, 100, "",
-    function(v)
+    end,
+})
+worldRegistry.terrainSliders.WaveSpeed = waterSec:AddSlider({
+    Title = "Wave Speed",
+    ConfigKey = "world.waveSpeed",
+    Default = DEFAULTS.Terrain_WaveSpeed, Min = 0, Max = 100, Step = 0.05,
+    Callback = function(v)
         if not isPtr(WorldState.terrainPtr) then return end
         safeWrite("float", WorldState.terrainPtr + 0x1f4, v)
-    end
-)
+    end,
+})
 
-local utilSec = worldTab:Section("Utilities", "Right", "quick actions")
+local utilSec = worldTab:AddSection("Utilities", "quick actions")
 
 local function toggleAllOff(registry)
     for _, t in pairs(registry) do
-        pcall(function() t:Set(false) end)
+        pcall(function() t:SetValue(false) end)
     end
 end
 
-utilSec:Button("Restore All World Values", function()
-    toggleAllOff(worldRegistry.lightingToggles)
-    toggleAllOff(worldRegistry.skyToggles)
-    toggleAllOff(worldRegistry.terrainToggles)
+utilSec:AddButton({
+    Title = "",
+    ButtonText = "Restore All World Values",
+    Expand = true,
+    Variant = "danger",
+    Callback = function()
+        toggleAllOff(worldRegistry.lightingToggles)
+        toggleAllOff(worldRegistry.skyToggles)
+        toggleAllOff(worldRegistry.terrainToggles)
 
-    pcall(function() worldRegistry.terrainSliders.WaterTransparency:Set(DEFAULTS.Terrain_WaterTrans) end)
-    pcall(function() worldRegistry.terrainSliders.WaterReflectance:Set(DEFAULTS.Terrain_WaterReflect) end)
-    pcall(function() worldRegistry.terrainSliders.WaveSize:Set(DEFAULTS.Terrain_WaveSize) end)
-    pcall(function() worldRegistry.terrainSliders.WaveSpeed:Set(DEFAULTS.Terrain_WaveSpeed) end)
+        pcall(function() worldRegistry.terrainSliders.WaterTransparency:SetValue(DEFAULTS.Terrain_WaterTrans) end)
+        pcall(function() worldRegistry.terrainSliders.WaterReflectance:SetValue(DEFAULTS.Terrain_WaterReflect) end)
+        pcall(function() worldRegistry.terrainSliders.WaveSize:SetValue(DEFAULTS.Terrain_WaveSize) end)
+        pcall(function() worldRegistry.terrainSliders.WaveSpeed:SetValue(DEFAULTS.Terrain_WaveSpeed) end)
 
-    resetToDefaults()
+        resetToDefaults()
 
-    Lib:Notify("World", "All world values reset to defaults", 2, "success")
-end):Tooltip("Toggles every world setting off and restores default memory values")
-
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        if persistentState.inspectorEnabled then scanRequested = true end
-    end
-end)
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        if persistentState.inspectorEnabled then scanRequested = true end
-    end
-end)
+        Lib:Notify({
+            Title = "World",
+            Content = "All world values reset to defaults",
+            Duration = 2,
+            Type = "success",
+        })
+    end,
+})
 
 RunService.RenderStepped:Connect(function()
+    _updateProjectionCache()
     RenderItemESP()
     RenderCorpseESP()
     RenderBannerESP()
